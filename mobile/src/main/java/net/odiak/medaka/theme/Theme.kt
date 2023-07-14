@@ -11,7 +11,7 @@ import androidx.compose.ui.graphics.Color
 private val lightColorScheme = lightColorScheme(
     primary = Purple200,
     secondary = Teal200,
-    /* Other default colors to override
+    /* Other default co lors to override
     background = Color.White,
     surface = Color.White,
     onPrimary = Color.White,
