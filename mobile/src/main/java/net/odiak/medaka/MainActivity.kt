@@ -1,6 +1,9 @@
 package net.odiak.medaka
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -26,9 +29,18 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import androidx.work.WorkQuery
+import androidx.work.await
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import net.odiak.medaka.theme.MedakaTheme
 import net.odiak.medaka.utils.parseISODateTime
 import java.time.Duration
@@ -40,7 +52,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        this.settingsDataStore.data
+        askNotificationPermission()
+
         setContent {
             val settings =
                 settingsDataStore.data.collectAsState(initial = null)
@@ -81,20 +94,54 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
 
-        val workManager = WorkManager.getInstance(this@MainActivity)
-        workManager.cancelAllWorkByTag(Worker.tag)
+        CoroutineScope(Dispatchers.IO).launch {
+            val workManager = WorkManager.getInstance(this@MainActivity)
+            val works = workManager.getWorkInfos(
+                WorkQuery.Builder.fromTags(listOf(Worker.tag))
+                    .addStates(listOf(WorkInfo.State.RUNNING)).build()
+            )
+                .await()
+            if (works.isNotEmpty()) return@launch
 
-        workManager.enqueueUniqueWork(
-            Worker.workerName,
-            ExistingWorkPolicy.KEEP,
-            OneTimeWorkRequestBuilder<Worker>().build()
-        )
+            workManager.cancelAllWorkByTag(Worker.tag)
+
+            workManager.enqueueUniqueWork(
+                Worker.workerName,
+                ExistingWorkPolicy.KEEP,
+                OneTimeWorkRequestBuilder<Worker>().build()
+            )
+
+            workManager.enqueueUniquePeriodicWork(
+                PeriodicWorker.workName,
+                ExistingPeriodicWorkPolicy.UPDATE,
+                PeriodicWorkRequestBuilder<PeriodicWorker>(Duration.ofMinutes(15)).build()
+            )
+        }
     }
 
     private fun openSettings() {
         val intent = Intent(this, SettingsActivity::class.java)
         startActivity(intent)
     }
+
+    private fun askNotificationPermission() {
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                0
+            )
+        }
+    }
+
 }
 
 @Composable
@@ -139,7 +186,9 @@ fun Main() {
                             ""
                         }
                         val sgDiffDiff = if (index > 1) {
-                            ((item.sg - data.sgs[index - 2].sg) / 2).signed()
+                            val diff1 = item.sg - data.sgs[index - 1].sg
+                            val diff2 = data.sgs[index - 1].sg - data.sgs[index - 2].sg
+                            (diff1 - diff2).signed()
                         } else {
                             ""
                         }
