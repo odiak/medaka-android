@@ -163,7 +163,7 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentText("SG: ${sg}mg/dL ${diff}\nat $time")
             .setContentIntent(pendingIntent)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notification)
             .setSilent(true)
             .setOngoing(true)
             .setAutoCancel(false)
