@@ -21,9 +21,12 @@ import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.Wearable
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import net.odiak.medaka.common.MinimedData
 import okhttp3.Call
 import okhttp3.Callback
@@ -32,6 +35,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okio.IOException
+import java.io.File
+import java.nio.charset.Charset
 import java.time.Duration
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -43,9 +48,11 @@ import kotlin.coroutines.suspendCoroutine
 class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     companion object {
+        const val cacheFile = "data.json"
         const val workerName = "worker"
         const val tag = "worker"
-        var lastData = MutableStateFlow<MinimedData?>(null)
+        val lastData = MutableStateFlow<MinimedData?>(null)
+        val lastDataTimestamp = MutableStateFlow<Long?>(null)
 
         fun enqueue(workManager: WorkManager, delaySecs: Long = 0) {
             val builder = OneTimeWorkRequestBuilder<Worker>().addTag(tag)
@@ -58,12 +65,30 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
                 builder.build()
             )
         }
+
+        fun checkCache(context: Context) {
+            if (lastData.value != null) {
+                return
+            }
+
+            val cache = File(context.filesDir, cacheFile)
+            if (cache.exists()) {
+                val data = cache.readText().parseJson<MinimedData>()
+                lastData.update { data }
+                CoroutineScope(Dispatchers.IO).launch {
+                    notify(context, data)
+                    sendDataToWearDevice(context, data)
+                }
+
+            }
+        }
     }
 
     override suspend fun doWork(): Result {
+        val context = applicationContext
         val start = System.currentTimeMillis()
 
-        val settings = applicationContext.settingsDataStore.data.first()
+        val settings = context.settingsDataStore.data.first()
         if (settings.password.isEmpty()) {
             return Result.success()
         }
@@ -71,14 +96,15 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
         val data = fetchData(settings.password)
         if (data != null) {
             lastData.update { data }
+            lastDataTimestamp.update { System.currentTimeMillis() }
 
             val lastSensorDateTime = data.lastSG?.datetime?.let {
                 LocalDateTime.from(DateTimeFormatter.ISO_DATE_TIME.parse(it))
             }
             println("Data fetched. latest sensor time: $lastSensorDateTime")
 
-            sendDataToWearDevice(data)
-            notify(data)
+            sendDataToWearDevice(context, data)
+            notify(context, data)
         }
 
         val durationSec = (System.currentTimeMillis() - start) / 1000
@@ -105,76 +131,78 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
                 return null
             }
 
-            return res.bodyJson<MinimedData>()
+            val bytes = res.body!!.bytes()
+            val file = File(applicationContext.filesDir, cacheFile)
+            file.writeBytes(bytes)
+
+            return bytes.toString(Charset.defaultCharset()).parseJson()
         } catch (e: Throwable) {
             Log.e("Worker", "Failed to fetch data", e)
             return null
         }
     }
+}
 
-    private fun sendDataToWearDevice(data: MinimedData) {
-        val context = applicationContext
+private fun sendDataToWearDevice(context: Context, data: MinimedData) {
+    val capabilityInfo = Tasks.await(
+        Wearable.getCapabilityClient(context)
+            .getCapability("medaka-wear", CapabilityClient.FILTER_REACHABLE)
+    )
+    val id = capabilityInfo.nodes.minByOrNull { if (it.isNearby) 0 else 1 }?.id ?: return
 
-        val capabilityInfo = Tasks.await(
-            Wearable.getCapabilityClient(context)
-                .getCapability("medaka-wear", CapabilityClient.FILTER_REACHABLE)
-        )
-        val id = capabilityInfo.nodes.minByOrNull { if (it.isNearby) 0 else 1 }?.id ?: return
+    val adapter =
+        Moshi.Builder().add(KotlinJsonAdapterFactory()).build().adapter(MinimedData::class.java)
+    val buffer = adapter.toJson(data).toByteArray()
 
-        val adapter =
-            Moshi.Builder().add(KotlinJsonAdapterFactory()).build().adapter(MinimedData::class.java)
-        val buffer = adapter.toJson(data).toByteArray()
+    Wearable.getMessageClient(context).sendMessage(id, "/data", buffer)
+}
 
-        Wearable.getMessageClient(context).sendMessage(id, "/data", buffer)
+private fun notify(context: Context, data: MinimedData) {
+    if (ActivityCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) != PackageManager.PERMISSION_GRANTED
+    ) {
+        return
     }
 
-    private fun notify(data: MinimedData) {
-        if (ActivityCompat.checkSelfPermission(
-                applicationContext,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            return
-        }
-
-        val manager = NotificationManagerCompat.from(applicationContext)
-        if (manager.getNotificationChannel("main") == null) {
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    "main",
-                    "Main",
-                    NotificationManager.IMPORTANCE_HIGH
-                )
+    val manager = NotificationManagerCompat.from(context)
+    if (manager.getNotificationChannel("main") == null) {
+        manager.createNotificationChannel(
+            NotificationChannel(
+                "main",
+                "Main",
+                NotificationManager.IMPORTANCE_HIGH
             )
-        }
+        )
+    }
 
-        val intent = Intent(applicationContext, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-        }
-        val pendingIntent: PendingIntent =
-            PendingIntent.getActivity(applicationContext, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+    val intent = Intent(context, MainActivity::class.java).apply {
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+    }
+    val pendingIntent: PendingIntent =
+        PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
 
-        val sg = data.lastSGString
-        val time = data.lastSGDateTime
-            ?.format(DateTimeFormatter.ofPattern("HH:mm"))
-        val diff = data.lastSGDiffString
+    val sg = data.lastSGString
+    val time = data.lastSGDateTime
+        ?.format(DateTimeFormatter.ofPattern("HH:mm"))
+    val diff = data.lastSGDiffString
 
-        val notification = NotificationCompat.Builder(applicationContext, "main")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setContentText("SG: ${sg}mg/dL ${diff}\nat $time")
-            .setContentIntent(pendingIntent)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setSilent(true)
-            .setOngoing(true)
-            .setAutoCancel(false)
-            .build()
+    val notification = NotificationCompat.Builder(context, "main")
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setContentText("SG: ${sg}mg/dL ${diff}\nat $time")
+        .setContentIntent(pendingIntent)
+        .setSmallIcon(R.drawable.ic_notification)
+        .setSilent(true)
+        .setOngoing(true)
+        .setAutoCancel(false)
+        .build()
 
 
-        try {
-            manager.notify(0, notification)
-        } catch (e: Throwable) {
-            Log.e("Worker", "Failed to notify", e)
-        }
+    try {
+        manager.notify(0, notification)
+    } catch (e: Throwable) {
+        Log.e("Worker", "Failed to notify", e)
     }
 }
 
@@ -192,8 +220,8 @@ suspend fun Call.executeSuspend(): Response {
     }
 }
 
-inline fun <reified T> Response.bodyJson(): T {
+inline fun <reified T> String.parseJson(): T {
     val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
     val adapter = moshi.adapter(T::class.java)
-    return adapter.fromJson(body!!.source())!!
+    return adapter.fromJson(this)!!
 }

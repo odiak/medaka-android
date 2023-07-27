@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -27,25 +28,26 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
-import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.ExistingWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.PeriodicWorkRequestBuilder
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.Observer
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.map
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import androidx.work.WorkQuery
-import androidx.work.await
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.map
+import net.odiak.medaka.common.periodicFlow
 import net.odiak.medaka.theme.MedakaTheme
 import net.odiak.medaka.utils.parseISODateTime
 import java.time.Duration
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import kotlin.time.Duration.Companion.minutes
 
 class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
@@ -53,6 +55,23 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         askNotificationPermission()
+        Worker.checkCache(this)
+
+        val workManager = WorkManager.getInstance(this)
+        val workInfoLiveData =
+            workManager.getWorkInfosForUniqueWorkLiveData(Worker.workerName).map {
+                it.firstOrNull()
+            }
+
+        val observer = object : Observer<WorkInfo?> {
+            override fun onChanged(value: WorkInfo?) {
+                if (value == null) {
+                    Worker.enqueue(workManager)
+                }
+                workInfoLiveData.removeObserver(this)
+            }
+        }
+        workInfoLiveData.observe(this, observer)
 
         setContent {
             val settings =
@@ -67,6 +86,13 @@ class MainActivity : ComponentActivity() {
             MedakaTheme {
                 Scaffold(topBar = {
                     TopAppBar(title = { Text("Medaka") }, modifier = Modifier, actions = {
+                        IconButton(onClick = { Worker.enqueue(workManager) }) {
+                            // reload button
+                            Icon(
+                                Icons.Filled.Refresh,
+                                contentDescription = "Reload data"
+                            )
+                        }
                         IconButton(onClick = ::openSettings) {
                             Icon(
                                 Icons.Filled.Settings,
@@ -83,39 +109,11 @@ class MainActivity : ComponentActivity() {
                                 .scrollable(state, Orientation.Vertical)
                                 .padding(16.dp)
                         ) {
-                            Main()
+                            Main(lifecycle, workInfoLiveData)
                         }
                     }
                 }
             }
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-
-        CoroutineScope(Dispatchers.IO).launch {
-            val workManager = WorkManager.getInstance(this@MainActivity)
-            val works = workManager.getWorkInfos(
-                WorkQuery.Builder.fromTags(listOf(Worker.tag))
-                    .addStates(listOf(WorkInfo.State.RUNNING)).build()
-            )
-                .await()
-            if (works.isNotEmpty()) return@launch
-
-            workManager.cancelAllWorkByTag(Worker.tag)
-
-            workManager.enqueueUniqueWork(
-                Worker.workerName,
-                ExistingWorkPolicy.KEEP,
-                OneTimeWorkRequestBuilder<Worker>().build()
-            )
-
-            workManager.enqueueUniquePeriodicWork(
-                PeriodicWorker.workName,
-                ExistingPeriodicWorkPolicy.UPDATE,
-                PeriodicWorkRequestBuilder<PeriodicWorker>(Duration.ofMinutes(15)).build()
-            )
         }
     }
 
@@ -145,8 +143,9 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun Main() {
+fun Main(lifecycle: Lifecycle, workInfoLiveData: LiveData<WorkInfo?>) {
     val data = Worker.lastData.collectAsState(null).value
+    val workInfo = workInfoLiveData.observeAsState().value
 
     if (data == null) {
         Text("No data")
@@ -155,7 +154,13 @@ fun Main() {
         if (last == null) {
             Text("Empty")
         } else {
-            val diff = Duration.between(last.datetime.parseISODateTime(), LocalDateTime.now())
+            val now = remember {
+                periodicFlow(1.minutes).map { LocalDateTime.now() }
+            }.collectAsStateWithLifecycle(
+                initialValue = LocalDateTime.now(),
+                lifecycle = lifecycle
+            ).value
+            val diff = Duration.between(last.datetime.parseISODateTime(), now)
                 .coerceAtLeast(Duration.ZERO)
             val diffSec = diff.seconds
             val diffMin = diffSec / 60
@@ -170,10 +175,12 @@ fun Main() {
             }
 
             Column {
-                Text("${last.sg}mg/dL")
+                Text(data.lastSGString)
                 Text("last sensor time: $diffText")
 
                 Spacer(modifier = Modifier.padding(16.dp))
+
+                Text("fetching status: ${workInfo?.state ?: "NONE"}")
 
                 val sgItems = data.sgs.withIndex().toList().takeLast(100).reversed()
 
