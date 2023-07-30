@@ -23,6 +23,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
@@ -44,18 +45,18 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
+import kotlin.time.Duration.Companion.seconds
 
 class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     companion object {
         const val cacheFile = "data.json"
         const val workerName = "worker"
-        const val tag = "worker"
         val lastData = MutableStateFlow<MinimedData?>(null)
         val lastDataTimestamp = MutableStateFlow<Long?>(null)
 
         fun enqueue(workManager: WorkManager, delaySecs: Long = 0) {
-            val builder = OneTimeWorkRequestBuilder<Worker>().addTag(tag)
+            val builder = OneTimeWorkRequestBuilder<Worker>()
             if (delaySecs > 0) {
                 builder.setInitialDelay(delaySecs, TimeUnit.SECONDS)
             }
@@ -82,6 +83,12 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
 
             }
         }
+
+        val timeSinceLastData: Long?
+            get() {
+                val lastDataTimestamp = lastDataTimestamp.value ?: return null
+                return System.currentTimeMillis() - lastDataTimestamp
+            }
     }
 
     override suspend fun doWork(): Result {
@@ -120,26 +127,29 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
             .readTimeout(Duration.ofMinutes(3))
             .build()
 
-        try {
-            val res = client.newCall(
-                Request.Builder().url("https://minimed-fetcher.odiak.workers.dev/fetch")
-                    .post(FormBody.Builder().build())
-                    .header("Authorization", "Bearer $password").build()
-            ).executeSuspend()
+        for (i in 1..4) {
+            try {
+                val res = client.newCall(
+                    Request.Builder().url("https://minimed-fetcher.odiak.workers.dev/fetch")
+                        .post(FormBody.Builder().build())
+                        .header("Authorization", "Bearer $password").build()
+                ).executeSuspend()
 
-            if (!res.isSuccessful) {
-                return null
+                if (res.isSuccessful) {
+                    val bytes = res.body!!.bytes()
+                    val file = File(applicationContext.filesDir, cacheFile)
+                    file.writeBytes(bytes)
+
+                    return bytes.toString(Charset.defaultCharset()).parseJson()
+                }
+            } catch (e: Throwable) {
+                Log.e("Worker", "Failed to fetch data", e)
             }
 
-            val bytes = res.body!!.bytes()
-            val file = File(applicationContext.filesDir, cacheFile)
-            file.writeBytes(bytes)
-
-            return bytes.toString(Charset.defaultCharset()).parseJson()
-        } catch (e: Throwable) {
-            Log.e("Worker", "Failed to fetch data", e)
-            return null
+            delay(30.seconds)
         }
+
+        return null
     }
 }
 

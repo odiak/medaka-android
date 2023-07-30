@@ -72,6 +72,8 @@ class MainActivity : ComponentActivity() {
             }
         }
         workInfoLiveData.observe(this, observer)
+        
+        PeriodicWorker.enqueue(workManager)
 
         setContent {
             val settings =
