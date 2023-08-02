@@ -19,10 +19,13 @@ jobs:
         uses: gradle/gradle-build-action@v2
       - name: Build Apps
         run: ./gradlew mobile:assembleDebug wear:assembleDebug
-      - name: Upload Artifacts
+      - name: Upload Artifacts (Mobile)
         uses: actions/upload-artifact@v3
         with:
-          name: Apps
-          path: |
-            mobile/build/outputs/apk/debug/mobile-debug.apk
-            wear/build/outputs/apk/debug/wear-debug.apk
+          name: Mobile App
+          path: mobile/build/outputs/apk/debug/mobile-debug.apk
+      - name: Upload Artifacts (Wear)
+        uses: actions/upload-artifact@v3
+        with:
+          name: Wear App
+          path: wear/build/outputs/apk/debug/mobile-debug.apk
