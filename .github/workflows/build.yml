@@ -10,12 +10,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 17
       - name: Setup Gradle
         uses: gradle/gradle-build-action@v2
-      - name: Build App for Mobile
-        run: ./gradlew mobile:assembleDebug
-      - name: Build App for Wear
-        run: ./gradlew wear:assembleDebug
+      - name: Build Apps
+        run: ./gradlew mobile:assembleDebug wear:assembleDebug
       - name: Upload Artifacts
         uses: actions/upload-artifact@v3
         with:
