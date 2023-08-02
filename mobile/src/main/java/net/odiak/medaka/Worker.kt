@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import net.odiak.medaka.common.DataForWear
 import net.odiak.medaka.common.MinimedData
 import okhttp3.Call
 import okhttp3.Callback
@@ -95,27 +96,35 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
         val context = applicationContext
         val start = System.currentTimeMillis()
 
-        val settings = context.settingsDataStore.data.first()
-        if (settings.password.isEmpty()) {
-            return Result.success()
-        }
-
-        val data = fetchData(settings.password)
-        if (data != null) {
-            lastData.update { data }
-            lastDataTimestamp.update { System.currentTimeMillis() }
-
-            val lastSensorDateTime = data.lastSG?.datetime?.let {
-                LocalDateTime.from(DateTimeFormatter.ISO_DATE_TIME.parse(it))
+        var failed = false
+        try {
+            val settings = context.settingsDataStore.data.first()
+            if (settings.password.isEmpty()) {
+                return Result.success()
             }
-            println("Data fetched. latest sensor time: $lastSensorDateTime")
 
-            sendDataToWearDevice(context, data)
-            notify(context, data)
+            val data = fetchData(settings.password)
+            if (data != null) {
+                lastData.update { data }
+                lastDataTimestamp.update { System.currentTimeMillis() }
+
+                val lastSensorDateTime = data.lastSG?.datetime?.let {
+                    LocalDateTime.from(DateTimeFormatter.ISO_DATE_TIME.parse(it))
+                }
+                println("Data fetched. latest sensor time: $lastSensorDateTime")
+
+                sendDataToWearDevice(context, data)
+                notify(context, data)
+            }
+        } catch (e: Throwable) {
+            Log.e("Worker", "Error", e)
+            failed = true
         }
 
-        val durationSec = (System.currentTimeMillis() - start) / 1000
-        val delay = (5 * 60 - durationSec).coerceAtLeast(0)
+        val delay = if (failed) 60 else {
+            val durationSec = (System.currentTimeMillis() - start) / 1000
+            (5 * 60 - durationSec).coerceAtLeast(0)
+        }
 
         enqueue(WorkManager.getInstance(applicationContext), delay)
 
@@ -160,9 +169,15 @@ private fun sendDataToWearDevice(context: Context, data: MinimedData) {
     )
     val id = capabilityInfo.nodes.minByOrNull { if (it.isNearby) 0 else 1 }?.id ?: return
 
+    val dataForWear = DataForWear(
+        lastSG = data.lastSGString,
+        lastSGDiff = data.lastSGDiffString,
+        lastSGTime = data.lastSGDateTime?.format(DateTimeFormatter.ofPattern("HH:mm")),
+    )
+
     val adapter =
-        Moshi.Builder().add(KotlinJsonAdapterFactory()).build().adapter(MinimedData::class.java)
-    val buffer = adapter.toJson(data).toByteArray()
+        Moshi.Builder().add(KotlinJsonAdapterFactory()).build().adapter(DataForWear::class.java)
+    val buffer = adapter.toJson(dataForWear).toByteArray()
 
     Wearable.getMessageClient(context).sendMessage(id, "/data", buffer)
 }
@@ -200,7 +215,7 @@ private fun notify(context: Context, data: MinimedData) {
 
     val notification = NotificationCompat.Builder(context, "main")
         .setPriority(NotificationCompat.PRIORITY_HIGH)
-        .setContentText("SG: ${sg}mg/dL ${diff}\nat $time")
+        .setContentText("SG: ${sg} ${diff}\nat $time")
         .setContentIntent(pendingIntent)
         .setSmallIcon(R.drawable.ic_notification)
         .setSilent(true)

@@ -13,26 +13,16 @@ import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material.Text
 import net.odiak.medaka.ListeningService
 import net.odiak.medaka.presentation.theme.MedakaTheme
-import net.odiak.medaka.utils.signed
-import java.time.format.DateTimeFormatter
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        ListeningService.checkData(this)
         val dataFlow = ListeningService.lastData
 
         setContent {
             val data = dataFlow.collectAsState(null)
-
-            val sgs = data.value?.sgs ?: emptyList()
-            val diff = if (sgs.isNotEmpty()) {
-                (sgs[sgs.size - 1].sg - sgs[sgs.size - 2].sg).signed()
-            } else {
-                ""
-            }
-            val time =
-                data.value?.lastSGDateTime?.format(DateTimeFormatter.ofPattern("HH:mm")) ?: ""
 
             MedakaTheme {
                 Column(
@@ -41,8 +31,13 @@ class MainActivity : ComponentActivity() {
                         .padding(8.dp),
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Text("${data.value?.lastSG?.sg}mg/dL $diff")
-                    Text("at $time")
+                    val d = data.value
+                    if (d == null) {
+                        Text("No data")
+                    } else {
+                        Text("${d.lastSG} ${d.lastSGDiff}")
+                        Text("at ${d.lastSGTime}")
+                    }
                 }
             }
         }

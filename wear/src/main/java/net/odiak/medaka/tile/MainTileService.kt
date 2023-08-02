@@ -1,12 +1,14 @@
 package net.odiak.medaka.tile
 
 import android.content.Context
+import android.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.wear.protolayout.ActionBuilders.AndroidActivity
 import androidx.wear.protolayout.ActionBuilders.LaunchAction
+import androidx.wear.protolayout.ColorBuilders.argb
 import androidx.wear.protolayout.LayoutElementBuilders
 import androidx.wear.protolayout.LayoutElementBuilders.Column
 import androidx.wear.protolayout.ModifiersBuilders
@@ -22,7 +24,6 @@ import com.google.android.horologist.compose.tools.buildDeviceParameters
 import com.google.android.horologist.tiles.SuspendingTileService
 import net.odiak.medaka.ListeningService
 import net.odiak.medaka.presentation.MainActivity
-import net.odiak.medaka.utils.signed
 
 private const val RESOURCES_VERSION = "0"
 
@@ -31,7 +32,6 @@ private const val RESOURCES_VERSION = "0"
  */
 @OptIn(ExperimentalHorologistApi::class)
 class MainTileService : SuspendingTileService() {
-
 
     override suspend fun resourcesRequest(
         requestParams: RequestBuilders.ResourcesRequest
@@ -42,6 +42,8 @@ class MainTileService : SuspendingTileService() {
     override suspend fun tileRequest(
         requestParams: RequestBuilders.TileRequest
     ): TileBuilders.Tile {
+        ListeningService.checkData(this)
+
         val singleTileTimeline = TimelineBuilders.Timeline.Builder().addTimelineEntry(
             TimelineBuilders.TimelineEntry.Builder().setLayout(
                 LayoutElementBuilders.Layout.Builder().setRoot(tileLayout(this)).build()
@@ -73,22 +75,20 @@ private fun tileLayout(context: Context): LayoutElementBuilders.LayoutElement {
                 .build()
             )
 
+    val color = argb(Color.argb(0xff, 0xf5, 0xf5, 0xf5))
+
     val content = if (data == null) {
-        Text.Builder(context, "No data").setModifiers(modifier).build()
+        Text.Builder(context, "No data").setModifiers(modifier).setColor(color).build()
     } else {
-        val sgs = data.sgs
-        val diff = if (data.sgs.isNotEmpty()) {
-            (sgs[sgs.size - 1].sg - sgs[sgs.size - 2].sg).signed()
-        } else {
-            ""
-        }
         Column.Builder()
             .setModifiers(modifier)
             .addContent(
-                Text.Builder(context, "${data.lastSG?.sg ?: "??"}mg/dL $diff")
+                Text.Builder(context, "${data.lastSG} ${data.lastSGDiff}")
+                    .setColor(color)
                     .build()
             )
-            .addContent(Text.Builder(context, "test").build()).build()
+            .addContent(Text.Builder(context, "at ${data.lastSGTime}").setColor(color).build())
+            .build()
     }
 
     return PrimaryLayout.Builder(buildDeviceParameters(context.resources)).setContent(
