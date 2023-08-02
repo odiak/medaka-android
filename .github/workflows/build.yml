@@ -28,4 +28,4 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: Wear App
-          path: wear/build/outputs/apk/debug/mobile-debug.apk
+          path: wear/build/outputs/apk/debug/wear-debug.apk
