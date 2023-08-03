@@ -72,12 +72,11 @@ class MainActivity : ComponentActivity() {
             }
         }
         workInfoLiveData.observe(this, observer)
-        
+
         PeriodicWorker.enqueue(workManager)
 
         setContent {
-            val settings =
-                settingsDataStore.data.collectAsState(initial = null)
+            val settings = settingsDataStore.data.collectAsState(initial = null)
 
             LaunchedEffect(settings) {
                 if (settings.value?.password?.isEmpty() == true) {
@@ -91,8 +90,7 @@ class MainActivity : ComponentActivity() {
                         IconButton(onClick = { Worker.enqueue(workManager) }) {
                             // reload button
                             Icon(
-                                Icons.Filled.Refresh,
-                                contentDescription = "Reload data"
+                                Icons.Filled.Refresh, contentDescription = "Reload data"
                             )
                         }
                         IconButton(onClick = ::openSettings) {
@@ -126,8 +124,7 @@ class MainActivity : ComponentActivity() {
 
     private fun askNotificationPermission() {
         if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.POST_NOTIFICATIONS
+                this, Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
         ) {
             return
@@ -135,9 +132,7 @@ class MainActivity : ComponentActivity() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                0
+                this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0
             )
         }
     }
@@ -151,19 +146,21 @@ fun Main(lifecycle: Lifecycle, workInfoLiveData: LiveData<WorkInfo?>) {
 
     if (data == null) {
         Text("No data")
-    } else {
+        return
+    }
+
+    Column {
         val last = data.lastSG
-        if (last == null) {
+        val datetime = last?.datetime?.parseISODateTime()
+        if (last == null || datetime == null) {
             Text("Empty")
         } else {
             val now = remember {
                 periodicFlow(1.minutes).map { LocalDateTime.now() }
             }.collectAsStateWithLifecycle(
-                initialValue = LocalDateTime.now(),
-                lifecycle = lifecycle
+                initialValue = LocalDateTime.now(), lifecycle = lifecycle
             ).value
-            val diff = Duration.between(last.datetime.parseISODateTime(), now)
-                .coerceAtLeast(Duration.ZERO)
+            val diff = Duration.between(datetime, now).coerceAtLeast(Duration.ZERO)
             val diffSec = diff.seconds
             val diffMin = diffSec / 60
             val diffHour = diffMin / 60
@@ -176,36 +173,34 @@ fun Main(lifecycle: Lifecycle, workInfoLiveData: LiveData<WorkInfo?>) {
                 "${diffSec}s ago"
             }
 
-            Column {
-                Text(data.lastSGString)
-                Text("last sensor time: $diffText")
+            Text(data.lastSGString)
+            Text("last sensor time: $diffText")
+        }
 
-                Spacer(modifier = Modifier.padding(16.dp))
+        Spacer(modifier = Modifier.padding(16.dp))
 
-                Text("fetching status: ${workInfo?.state ?: "NONE"}")
+        Text("fetching status: ${workInfo?.state ?: "NONE"}")
 
-                val sgItems = data.sgs.withIndex().toList().takeLast(100).reversed()
+        val sgItems = data.sgs.withIndex().toList().reversed()
 
-                LazyColumn(Modifier.fillMaxWidth()) {
-                    items(sgItems.size) { i ->
-                        val (index, item) = sgItems[i]
-                        val sgDiff = if (index > 0) {
-                            (item.sg - data.sgs[index - 1].sg).signed()
-                        } else {
-                            ""
-                        }
-                        val sgDiffDiff = if (index > 1) {
-                            val diff1 = item.sg - data.sgs[index - 1].sg
-                            val diff2 = data.sgs[index - 1].sg - data.sgs[index - 2].sg
-                            (diff1 - diff2).signed()
-                        } else {
-                            ""
-                        }
-                        val time = item.datetime.parseISODateTime()
-                            .format(DateTimeFormatter.ofPattern("HH:mm"))
-                        Text("$time -- ${item.sg}mg/dL $sgDiff ($sgDiffDiff)")
-                    }
+        LazyColumn(Modifier.fillMaxWidth()) {
+            items(sgItems.size) { i ->
+                val (index, item) = sgItems[i]
+                val sgDiff = if (index > 0) {
+                    (item.sg - data.sgs[index - 1].sg).signed()
+                } else {
+                    ""
                 }
+                val sgDiffDiff = if (index > 1) {
+                    val diff1 = item.sg - data.sgs[index - 1].sg
+                    val diff2 = data.sgs[index - 1].sg - data.sgs[index - 2].sg
+                    (diff1 - diff2).signed()
+                } else {
+                    ""
+                }
+                val time = item.datetime?.parseISODateTime()
+                    ?.format(DateTimeFormatter.ofPattern("HH:mm"))
+                Text("$time -- ${item.sg}mg/dL $sgDiff ($sgDiffDiff)")
             }
         }
     }

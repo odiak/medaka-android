@@ -23,12 +23,12 @@ class MinimedData(val sgs: List<SensorGlucoseData>, val lastSG: SensorGlucoseDat
 }
 
 class SensorGlucoseData(
-    val datetime: String,
+    val datetime: String?,
     val kind: String,
-    val relativeOffset: Int,
-    val sensorState: String,
+    val relativeOffset: Int?,
+    val sensorState: String?,
     val sg: Int,
-    val timeChange: Boolean
+    val timeChange: Boolean?
 ) {
     object SensorStates {
         const val OK = "NO_ERROR_MESSAGE"
