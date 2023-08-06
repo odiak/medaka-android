@@ -31,22 +31,23 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LiveData
 import androidx.lifecycle.Observer
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.map
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import kotlinx.coroutines.flow.map
+import net.odiak.medaka.common.MinimedData
+import net.odiak.medaka.common.SensorGlucoseData
 import net.odiak.medaka.common.periodicFlow
+import net.odiak.medaka.common.relativeTextTo
+import net.odiak.medaka.common.signed
 import net.odiak.medaka.theme.MedakaTheme
 import net.odiak.medaka.utils.parseISODateTime
-import java.time.Duration
 import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
 import kotlin.time.Duration.Companion.minutes
 
 class MainActivity : ComponentActivity() {
@@ -109,7 +110,19 @@ class MainActivity : ComponentActivity() {
                                 .scrollable(state, Orientation.Vertical)
                                 .padding(16.dp)
                         ) {
-                            Main(lifecycle, workInfoLiveData)
+                            val data = Worker.lastData.collectAsState(null).value
+                            val workInfoState = workInfoLiveData.observeAsState().value?.state
+                            if (data == null) {
+                                Text("No data")
+                                return@Column
+                            } else {
+                                val now = remember {
+                                    periodicFlow(1.minutes).map { LocalDateTime.now() }
+                                }.collectAsStateWithLifecycle(
+                                    initialValue = LocalDateTime.now(), lifecycle = lifecycle
+                                ).value
+                                Main(data, workInfoState, now)
+                            }
                         }
                     }
                 }
@@ -140,46 +153,21 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun Main(lifecycle: Lifecycle, workInfoLiveData: LiveData<WorkInfo?>) {
-    val data = Worker.lastData.collectAsState(null).value
-    val workInfo = workInfoLiveData.observeAsState().value
-
-    if (data == null) {
-        Text("No data")
-        return
-    }
-
+fun Main(data: MinimedData, workState: WorkInfo.State?, now: LocalDateTime) {
     Column {
         val last = data.lastSG
         val datetime = last?.datetime?.parseISODateTime()
         if (last == null || datetime == null) {
             Text("Empty")
         } else {
-            val now = remember {
-                periodicFlow(1.minutes).map { LocalDateTime.now() }
-            }.collectAsStateWithLifecycle(
-                initialValue = LocalDateTime.now(), lifecycle = lifecycle
-            ).value
-            val diff = Duration.between(datetime, now).coerceAtLeast(Duration.ZERO)
-            val diffSec = diff.seconds
-            val diffMin = diffSec / 60
-            val diffHour = diffMin / 60
+            val diffText = datetime.relativeTextTo(now)
 
-            val diffText = if (diffHour > 0) {
-                "${diffHour}h ago"
-            } else if (diffMin > 0) {
-                "${diffMin}m ago"
-            } else {
-                "${diffSec}s ago"
-            }
-
-            Text(data.lastSGString)
-            Text("last sensor time: $diffText")
+            Text("${data.lastSGString} -- $diffText")
         }
 
         Spacer(modifier = Modifier.padding(16.dp))
 
-        Text("fetching status: ${workInfo?.state ?: "NONE"}")
+        Text("fetching status: ${workState ?: "NONE"}")
 
         val sgItems = data.sgs.withIndex().toList().reversed()
 
@@ -194,16 +182,45 @@ fun Main(lifecycle: Lifecycle, workInfoLiveData: LiveData<WorkInfo?>) {
                 val sgDiffDiff = if (index > 1) {
                     val diff1 = item.sg - data.sgs[index - 1].sg
                     val diff2 = data.sgs[index - 1].sg - data.sgs[index - 2].sg
-                    (diff1 - diff2).signed()
+                    val v = (diff1 - diff2).signed()
+                    "($v)"
                 } else {
                     ""
                 }
-                val time = item.datetime?.parseISODateTime()
-                    ?.format(DateTimeFormatter.ofPattern("HH:mm"))
-                Text("$time -- ${item.sg}mg/dL $sgDiff ($sgDiffDiff)")
+                Text("${item.timeText} -- ${item.sgText} $sgDiff $sgDiffDiff")
             }
         }
     }
 }
 
-fun Int.signed() = if (this > 0) "+$this" else "$this"
+@Preview
+@Composable
+fun MainPreview() {
+    val sgs = listOf(
+        SensorGlucoseData(
+            "2023-08-01T00:00:00Z",
+            "SG",
+            null,
+            SensorGlucoseData.SensorStates.NO_ERROR_MESSAGE,
+            120,
+            false
+        ),
+        SensorGlucoseData(
+            "2023-08-01T00:05:00Z",
+            "SG",
+            null,
+            SensorGlucoseData.SensorStates.NO_ERROR_MESSAGE,
+            122,
+            false
+        ),
+        SensorGlucoseData(
+            "2023-08-01T00:10:00Z",
+            "SG",
+            null,
+            SensorGlucoseData.SensorStates.NO_ERROR_MESSAGE,
+            130,
+            false
+        )
+    )
+    Main(MinimedData(sgs = sgs, lastSG = sgs.last()), null, LocalDateTime.of(2023, 8, 1, 0, 12))
+}
