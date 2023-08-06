@@ -1,9 +1,17 @@
 package net.odiak.medaka.common
 
+import com.squareup.moshi.Json
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
-class MinimedData(val sgs: List<SensorGlucoseData>, val lastSG: SensorGlucoseData?) {
+class MinimedData(
+    val sgs: List<SensorGlucose>,
+    val lastSG: SensorGlucose?,
+    val basal: Basal,
+    @Json(name = "pumpBannerState")
+    val pumpBannerStates: List<PumpBannerState> = emptyList(),
+    val timeToNextCalibrationMinutes: Int? = null
+) {
     val lastSGString: String
         get() = lastSG?.sgText ?: "??"
 
@@ -17,7 +25,7 @@ class MinimedData(val sgs: List<SensorGlucoseData>, val lastSG: SensorGlucoseDat
         }
 }
 
-class SensorGlucoseData(
+class SensorGlucose(
     val datetime: String?,
     val kind: String,
     val relativeOffset: Int?,
@@ -63,3 +71,7 @@ class SensorGlucoseData(
     val timeText: String
         get() = datetime?.parseISODateTime()?.format(timeFormat) ?: "??"
 }
+
+class Basal(val activeBasalPattern: String, val basalRate: Double)
+
+class PumpBannerState(val type: String, val timeRemaining: Int? = null)

@@ -10,9 +10,11 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
@@ -30,9 +32,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.Observer
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -40,8 +47,10 @@ import androidx.lifecycle.map
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import kotlinx.coroutines.flow.map
+import net.odiak.medaka.common.Basal
 import net.odiak.medaka.common.MinimedData
-import net.odiak.medaka.common.SensorGlucoseData
+import net.odiak.medaka.common.PumpBannerState
+import net.odiak.medaka.common.SensorGlucose
 import net.odiak.medaka.common.periodicFlow
 import net.odiak.medaka.common.relativeTextTo
 import net.odiak.medaka.common.signed
@@ -160,9 +169,29 @@ fun Main(data: MinimedData, workState: WorkInfo.State?, now: LocalDateTime) {
         if (last == null || datetime == null) {
             Text("Empty")
         } else {
-            val diffText = datetime.relativeTextTo(now)
+            val relativeTime = datetime.relativeTextTo(now)
 
-            Text("${data.lastSGString} -- $diffText")
+            Text(buildAnnotatedString {
+                withStyle(style = SpanStyle(fontSize = 24.sp)) {
+                    append(data.lastSGString)
+                }
+                append(" -- $relativeTime")
+            })
+        }
+        Text("basal: ${data.basal.activeBasalPattern} ${data.basal.basalRate}U/h")
+        for (bannerState in data.pumpBannerStates) {
+            val remainingText = bannerState.timeRemaining?.let {
+                val h = (it / 60).toString()
+                val m = (it % 60).toString().padStart(2, '0')
+                "(remaining $h:$m)"
+            } ?: ""
+            Text("in progress: ${bannerState.type} $remainingText")
+        }
+
+        data.timeToNextCalibrationMinutes?.let {
+            val h = (it / 60).toString()
+            val m = (it % 60).toString().padStart(2, '0')
+            Text("next calibration: after $h:$m")
         }
 
         Spacer(modifier = Modifier.padding(16.dp))
@@ -197,30 +226,42 @@ fun Main(data: MinimedData, workState: WorkInfo.State?, now: LocalDateTime) {
 @Composable
 fun MainPreview() {
     val sgs = listOf(
-        SensorGlucoseData(
-            "2023-08-01T00:00:00Z",
-            "SG",
-            null,
-            SensorGlucoseData.SensorStates.NO_ERROR_MESSAGE,
-            120,
-            false
+        SensorGlucose(
+            datetime = "2023-08-01T00:00:00Z",
+            kind = "SG",
+            relativeOffset = null,
+            sensorState = SensorGlucose.SensorStates.NO_ERROR_MESSAGE,
+            sg = 120,
+            timeChange = false
         ),
-        SensorGlucoseData(
-            "2023-08-01T00:05:00Z",
-            "SG",
-            null,
-            SensorGlucoseData.SensorStates.NO_ERROR_MESSAGE,
-            122,
-            false
+        SensorGlucose(
+            datetime = "2023-08-01T00:05:00Z",
+            kind = "SG",
+            relativeOffset = null,
+            sensorState = SensorGlucose.SensorStates.NO_ERROR_MESSAGE,
+            sg = 122,
+            timeChange = false
         ),
-        SensorGlucoseData(
-            "2023-08-01T00:10:00Z",
-            "SG",
-            null,
-            SensorGlucoseData.SensorStates.NO_ERROR_MESSAGE,
-            130,
-            false
+        SensorGlucose(
+            datetime = "2023-08-01T00:10:00Z",
+            kind = "SG",
+            relativeOffset = null,
+            sensorState = SensorGlucose.SensorStates.NO_ERROR_MESSAGE,
+            sg = 130,
+            timeChange = false
         )
     )
-    Main(MinimedData(sgs = sgs, lastSG = sgs.last()), null, LocalDateTime.of(2023, 8, 1, 0, 12))
+    Main(
+        MinimedData(
+            sgs = sgs,
+            lastSG = sgs.last(),
+            basal = Basal("WORKDAY", 0.025),
+            pumpBannerStates = listOf(
+                PumpBannerState(type = "FOO", timeRemaining = 100),
+                PumpBannerState(type = "BAR")
+            )
+        ),
+        null,
+        LocalDateTime.of(2023, 8, 1, 0, 12)
+    )
 }
