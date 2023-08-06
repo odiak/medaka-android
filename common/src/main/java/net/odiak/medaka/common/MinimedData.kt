@@ -72,6 +72,12 @@ class SensorGlucose(
         get() = datetime?.parseISODateTime()?.format(timeFormat) ?: "??"
 }
 
-class Basal(val activeBasalPattern: String, val basalRate: Double)
+class Basal(
+    val activeBasalPattern: String,
+    val basalRate: Double,
+    val tempBasalRate: Double? = null
+    // tempBasalType: String? = null,
+    // tempBasalTimeRemaining: Int? = null
+)
 
 class PumpBannerState(val type: String, val timeRemaining: Int? = null)

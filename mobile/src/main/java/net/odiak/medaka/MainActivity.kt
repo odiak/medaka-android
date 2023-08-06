@@ -10,11 +10,9 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
@@ -32,10 +30,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -178,7 +176,19 @@ fun Main(data: MinimedData, workState: WorkInfo.State?, now: LocalDateTime) {
                 append(" -- $relativeTime")
             })
         }
-        Text("basal: ${data.basal.activeBasalPattern} ${data.basal.basalRate}U/h")
+
+        Text(buildAnnotatedString {
+            append("basal: ")
+            val text = "${data.basal.activeBasalPattern} ${data.basal.basalRate}U/h"
+            if (data.basal.tempBasalRate != null) {
+                withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
+                    append(text)
+                }
+            } else {
+                append(text)
+            }
+        })
+
         for (bannerState in data.pumpBannerStates) {
             val remainingText = bannerState.timeRemaining?.let {
                 val h = (it / 60).toString()
