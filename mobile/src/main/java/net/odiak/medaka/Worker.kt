@@ -12,10 +12,16 @@ import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.CoroutineWorker
+import androidx.work.Data
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.await
 import com.google.android.gms.tasks.Tasks
 import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.Wearable
@@ -53,18 +59,34 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
     companion object {
         const val cacheFile = "data.json"
         const val workerName = "worker"
+        private const val workerNamePeriodic = "worker-periodic"
         val lastData = MutableStateFlow<MinimedData?>(null)
         val lastDataTimestamp = MutableStateFlow<Long?>(null)
 
         fun enqueue(workManager: WorkManager, delaySecs: Long = 0) {
-            val builder = OneTimeWorkRequestBuilder<Worker>()
-            if (delaySecs > 0) {
-                builder.setInitialDelay(delaySecs, TimeUnit.SECONDS)
-            }
             workManager.enqueueUniqueWork(
                 workerName,
                 ExistingWorkPolicy.REPLACE,
-                builder.build()
+                OneTimeWorkRequestBuilder<Worker>()
+                    .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                    .apply {
+                        if (delaySecs > 0) {
+                            setInitialDelay(delaySecs, TimeUnit.SECONDS)
+                        }
+                    }
+                    .build()
+            )
+        }
+
+        fun enqueuePeriodically(workManager: WorkManager) {
+            workManager.enqueueUniquePeriodicWork(
+                workerNamePeriodic,
+                ExistingPeriodicWorkPolicy.UPDATE,
+                PeriodicWorkRequestBuilder<Worker>(Duration.ofMinutes(15))
+                    .setInputData(
+                        Data.Builder().putBoolean("periodic", true).build()
+                    )
+                    .build()
             )
         }
 
@@ -94,16 +116,21 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
 
     override suspend fun doWork(): Result {
         val context = applicationContext
-        val start = System.currentTimeMillis()
+        val workManager = WorkManager.getInstance(context)
 
-        var failed = false
+        val isPeriodic = inputData.getBoolean("periodic", false)
+        if (isPeriodic && !shouldContinueOnPeriodicWork(workManager)) {
+            return Result.success()
+        }
+
+        var data: MinimedData? = null
         try {
             val settings = context.settingsDataStore.data.first()
             if (settings.password.isEmpty()) {
                 return Result.success()
             }
 
-            val data = fetchData(settings.password)
+            data = fetchData(context, settings.password)
             if (data != null) {
                 lastData.update { data }
                 lastDataTimestamp.update { System.currentTimeMillis() }
@@ -118,48 +145,62 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
             }
         } catch (e: Throwable) {
             Log.e("Worker", "Error", e)
-            failed = true
         }
 
-        val delay = if (failed) 60 else {
-            val durationSec = (System.currentTimeMillis() - start) / 1000
-            (5 * 60 - durationSec).coerceAtLeast(0)
+        val lastSensorDateTime = data?.lastSGDateTime
+        val delay = if (lastSensorDateTime == null) 60 else {
+            val now = LocalDateTime.now()
+            val target = lastSensorDateTime.plusSeconds(60 * 5 + 30)
+            Duration.between(now, target).seconds.coerceAtLeast(30)
         }
 
-        enqueue(WorkManager.getInstance(applicationContext), delay)
+        enqueue(workManager, delay)
 
         return Result.success()
     }
 
-    private suspend fun fetchData(password: String): MinimedData? {
-        val client = OkHttpClient.Builder()
-            .readTimeout(Duration.ofMinutes(3))
-            .build()
+    private suspend fun shouldContinueOnPeriodicWork(workManager: WorkManager): Boolean {
+        val work = workManager.getWorkInfosForUniqueWork(workerName).await().firstOrNull()
+            ?: return true
+        val timeSinceLastData = Worker.timeSinceLastData ?: 0
 
-        for (i in 1..4) {
-            try {
-                val res = client.newCall(
-                    Request.Builder().url("https://minimed-fetcher.odiak.workers.dev/fetch")
-                        .post(FormBody.Builder().build())
-                        .header("Authorization", "Bearer $password").build()
-                ).executeSuspend()
-
-                if (res.isSuccessful) {
-                    val bytes = res.body!!.bytes()
-                    val file = File(applicationContext.filesDir, cacheFile)
-                    file.writeBytes(bytes)
-
-                    return bytes.toString(Charset.defaultCharset()).parseJson()
-                }
-            } catch (e: Throwable) {
-                Log.e("Worker", "Failed to fetch data", e)
-            }
-
-            delay(30.seconds)
+        if (work.state == WorkInfo.State.RUNNING || timeSinceLastData < 5 * 60 * 1000) {
+            return false
         }
 
-        return null
+        workManager.cancelWorkById(work.id).await()
+        return true
     }
+}
+
+private suspend fun fetchData(context: Context, password: String): MinimedData? {
+    val client = OkHttpClient.Builder()
+        .readTimeout(Duration.ofMinutes(3))
+        .build()
+
+    for (i in 1..4) {
+        try {
+            val res = client.newCall(
+                Request.Builder().url("https://minimed-fetcher.odiak.workers.dev/fetch")
+                    .post(FormBody.Builder().build())
+                    .header("Authorization", "Bearer $password").build()
+            ).executeSuspend()
+
+            if (res.isSuccessful) {
+                val bytes = res.body!!.bytes()
+                val file = File(context.filesDir, Worker.cacheFile)
+                file.writeBytes(bytes)
+
+                return bytes.toString(Charset.defaultCharset()).parseJson()
+            }
+        } catch (e: Throwable) {
+            Log.e("Worker", "Failed to fetch data", e)
+        }
+
+        delay(30.seconds)
+    }
+
+    return null
 }
 
 private fun sendDataToWearDevice(context: Context, data: MinimedData) {
@@ -215,7 +256,7 @@ private fun notify(context: Context, data: MinimedData) {
 
     val notification = NotificationCompat.Builder(context, "main")
         .setPriority(NotificationCompat.PRIORITY_HIGH)
-        .setContentText("SG: ${sg} ${diff}\nat $time")
+        .setContentText("SG: $sg $diff\nat $time")
         .setContentIntent(pendingIntent)
         .setSmallIcon(R.drawable.ic_notification)
         .setSilent(true)

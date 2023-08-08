@@ -81,7 +81,7 @@ class MainActivity : ComponentActivity() {
         }
         workInfoLiveData.observe(this, observer)
 
-        PeriodicWorker.enqueue(workManager)
+        Worker.enqueuePeriodically(workManager)
 
         setContent {
             val settings = settingsDataStore.data.collectAsState(initial = null)
