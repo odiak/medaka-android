@@ -4,5 +4,8 @@ option java_package = "net.odiak.medaka.proto";
 option java_multiple_files = true;
 
 message Settings {
-  string password = 1;
+  string username = 1;
+  string password = 2;
+  string language = 3;
+  string country = 4;
 }

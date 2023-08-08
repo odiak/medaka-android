@@ -35,9 +35,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.odiak.medaka.common.DataForWear
 import net.odiak.medaka.common.MinimedData
+import net.odiak.medaka.proto.Settings
 import okhttp3.Call
 import okhttp3.Callback
-import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -128,7 +128,7 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
                 return Result.success()
             }
 
-            data = fetchData(context, settings.password)
+            data = fetchData(context, settings)
             if (data != null) {
                 lastData.update { data }
                 lastDataTimestamp.update { System.currentTimeMillis() }
@@ -171,17 +171,19 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
     }
 }
 
-private suspend fun fetchData(context: Context, password: String): MinimedData? {
+private suspend fun fetchData(context: Context, settings: Settings): MinimedData? {
     val client = OkHttpClient.Builder()
         .readTimeout(Duration.ofMinutes(3))
         .build()
+
+    val payload = Payload(settings)
 
     for (i in 1..4) {
         try {
             val res = client.newCall(
                 Request.Builder().url("https://minimed-fetcher.odiak.workers.dev/fetch")
-                    .post(FormBody.Builder().build())
-                    .header("Authorization", "Bearer $password").build()
+                    .postJson(payload)
+                    .build()
             ).executeSuspend()
 
             if (res.isSuccessful) {
@@ -288,4 +290,24 @@ inline fun <reified T> String.parseJson(): T {
     val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
     val adapter = moshi.adapter(T::class.java)
     return adapter.fromJson(this)!!
+}
+
+class Payload(
+    val username: String,
+    val password: String,
+    val country: String,
+    val language: String
+) {
+    constructor(settings: Settings) : this(
+        settings.username,
+        settings.password,
+        settings.country,
+        settings.language
+    )
+}
+
+inline fun <reified T> Request.Builder.postJson(obj: T): Request.Builder {
+    val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+    val adapter = moshi.adapter(T::class.java)
+    return post(JsonRequestBody(adapter, obj))
 }

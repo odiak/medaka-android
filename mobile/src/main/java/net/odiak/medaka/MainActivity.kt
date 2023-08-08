@@ -84,10 +84,13 @@ class MainActivity : ComponentActivity() {
         Worker.enqueuePeriodically(workManager)
 
         setContent {
-            val settings = settingsDataStore.data.collectAsState(initial = null)
+            val settings = remember { settingsDataStore.data }.collectAsState(initial = null)
 
             LaunchedEffect(settings) {
-                if (settings.value?.password?.isEmpty() == true) {
+                val s = settings.value ?: return@LaunchedEffect
+                val isSettingsEmpty = listOf(s.username, s.password, s.country, s.language)
+                    .any { it.isEmpty() }
+                if (isSettingsEmpty) {
                     openSettings()
                 }
             }
