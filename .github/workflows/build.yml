@@ -21,7 +21,7 @@ jobs:
         run: ./gradlew mobile:assembleDebug wear:assembleDebug
       - name: Setup AWS CLI
         run: |
-          cat > ~/.aws/credentials <<EOF
+          mkdir -p ~/.aws && cat > ~/.aws/credentials <<EOF
           [default]
           aws_access_key_id = ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_access_key = ${{ secrets.AWS_SECRET_ACCESS_KEY }}
