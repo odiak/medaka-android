@@ -10,27 +10,40 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+
       - name: Setup Java
         uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: 17
+
       - name: Setup Gradle
         uses: gradle/gradle-build-action@v2
+
       - name: Build Apps
         run: ./gradlew mobile:assembleDebug wear:assembleDebug
+
       - name: Setup AWS CLI
         run: |
-          mkdir -p ~/.aws && cat > ~/.aws/credentials <<EOF
+          mkdir -p ~/.aws
+
+          cat > ~/.aws/credentials <<EOF
           [default]
           aws_access_key_id = ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_access_key = ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           EOF
+
+          cat > ~/.aws/config <<EOF
+          [default]
+          region = auto
+          EOF
+
       - name: Upload Files (Mobile)
         run: |
           aws s3 cp --endpoint-url=${{ secrets.S3_ENDPOINT }} \
             mobile/build/outputs/apk/debug/mobile-debug.apk \
             s3://${{ secrets.S3_BUCKET }}
+
       - name: Upload Files (Wear)
         run: |
           aws s3 cp --endpoint-url=${{ secrets.S3_ENDPOINT }} \
