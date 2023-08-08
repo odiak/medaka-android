@@ -19,13 +19,12 @@ jobs:
         uses: gradle/gradle-build-action@v2
       - name: Build Apps
         run: ./gradlew mobile:assembleDebug wear:assembleDebug
-      - name: Upload Artifacts (Mobile)
-        uses: actions/upload-artifact@v3
+      - name: Setup AWS CLI
+        uses: aws-actions/configure-aws-credentials@v1
         with:
-          name: Mobile App
-          path: mobile/build/outputs/apk/debug/mobile-debug.apk
-      - name: Upload Artifacts (Wear)
-        uses: actions/upload-artifact@v3
-        with:
-          name: Wear App
-          path: wear/build/outputs/apk/debug/wear-debug.apk
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - name: Upload Files (Mobile)
+        run: aws s3 cp mobile/build/outputs/apk/debug/mobile-debug.apk s3://${{ secrets.S3_BUCKET }}
+      - name: Upload Files (Wear)
+        run: aws s3 cp wear/build/outputs/apk/debug/wear-debug.apk s3://${{ secrets.S3_BUCKET }}
