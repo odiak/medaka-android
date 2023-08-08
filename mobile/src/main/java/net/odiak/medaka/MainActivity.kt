@@ -49,11 +49,11 @@ import net.odiak.medaka.common.Basal
 import net.odiak.medaka.common.MinimedData
 import net.odiak.medaka.common.PumpBannerState
 import net.odiak.medaka.common.SensorGlucose
+import net.odiak.medaka.common.parseISODateTime
 import net.odiak.medaka.common.periodicFlow
 import net.odiak.medaka.common.relativeTextTo
 import net.odiak.medaka.common.signed
 import net.odiak.medaka.theme.MedakaTheme
-import net.odiak.medaka.utils.parseISODateTime
 import java.time.LocalDateTime
 import kotlin.time.Duration.Companion.minutes
 
@@ -187,6 +187,11 @@ fun Main(data: MinimedData, workState: WorkInfo.State?, now: LocalDateTime) {
             } else {
                 append(text)
             }
+
+            val tempRate = data.basal.tempBasalRate
+            if (tempRate != null) {
+                append(" (temp ${tempRate}U/h)")
+            }
         })
 
         for (bannerState in data.pumpBannerStates) {
@@ -265,7 +270,7 @@ fun MainPreview() {
         MinimedData(
             sgs = sgs,
             lastSG = sgs.last(),
-            basal = Basal("WORKDAY", 0.025),
+            basal = Basal("WORKDAY", 0.025, tempBasalRate = 0.05),
             pumpBannerStates = listOf(
                 PumpBannerState(type = "FOO", timeRemaining = 100),
                 PumpBannerState(type = "BAR")
