@@ -16,7 +16,6 @@ import androidx.work.Data
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
@@ -68,7 +67,6 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
                 workerName,
                 ExistingWorkPolicy.REPLACE,
                 OneTimeWorkRequestBuilder<Worker>()
-                    .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                     .apply {
                         if (delaySecs > 0) {
                             setInitialDelay(delaySecs, TimeUnit.SECONDS)
