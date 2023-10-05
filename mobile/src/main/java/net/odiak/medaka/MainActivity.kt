@@ -18,6 +18,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -88,9 +89,7 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(settings) {
                 val s = settings.value ?: return@LaunchedEffect
-                val isSettingsEmpty = listOf(s.username, s.password, s.country, s.language)
-                    .any { it.isEmpty() }
-                if (isSettingsEmpty) {
+                if (!s.isValid()) {
                     openSettings()
                 }
             }
@@ -120,6 +119,12 @@ class MainActivity : ComponentActivity() {
                                 .scrollable(state, Orientation.Vertical)
                                 .padding(16.dp)
                         ) {
+                            Button(onClick = {
+                                startActivity(Intent(this@MainActivity, LoginActivity::class.java))
+                            }) {
+                                Text("Login")
+                            }
+
                             val data = Worker.lastData.collectAsState(null).value
                             val workInfoState = workInfoLiveData.observeAsState().value?.state
                             if (data == null) {
@@ -197,6 +202,10 @@ fun Main(data: MinimedData, workState: WorkInfo.State?, now: LocalDateTime) {
             }
         })
 
+        data.activeInsulin?.let {
+            Text("active insulin: ${it.amount}U")
+        }
+
         for (bannerState in data.pumpBannerStates) {
             val remainingText = bannerState.timeRemaining?.let {
                 val h = (it / 60).toString()
@@ -246,27 +255,18 @@ fun MainPreview() {
     val sgs = listOf(
         SensorGlucose(
             datetime = "2023-08-01T00:00:00Z",
-            kind = "SG",
-            relativeOffset = null,
             sensorState = SensorGlucose.SensorStates.NO_ERROR_MESSAGE,
             sg = 120,
-            timeChange = false
         ),
         SensorGlucose(
             datetime = "2023-08-01T00:05:00Z",
-            kind = "SG",
-            relativeOffset = null,
             sensorState = SensorGlucose.SensorStates.NO_ERROR_MESSAGE,
             sg = 122,
-            timeChange = false
         ),
         SensorGlucose(
             datetime = "2023-08-01T00:10:00Z",
-            kind = "SG",
-            relativeOffset = null,
             sensorState = SensorGlucose.SensorStates.NO_ERROR_MESSAGE,
             sg = 130,
-            timeChange = false
         )
     )
     Main(

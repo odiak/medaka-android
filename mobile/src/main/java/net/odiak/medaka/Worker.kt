@@ -1,6 +1,7 @@
 package net.odiak.medaka
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -25,6 +26,7 @@ import com.google.android.gms.tasks.Tasks
 import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.Wearable
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.adapter
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,9 +37,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import net.odiak.medaka.common.DataForWear
 import net.odiak.medaka.common.MinimedData
-import net.odiak.medaka.proto.Settings
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -46,6 +48,7 @@ import java.io.File
 import java.nio.charset.Charset
 import java.time.Duration
 import java.time.LocalDateTime
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
@@ -61,6 +64,11 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
         private const val workerNamePeriodic = "worker-periodic"
         val lastData = MutableStateFlow<MinimedData?>(null)
         val lastDataTimestamp = MutableStateFlow<Long?>(null)
+
+        var token: String? = null
+        var tokenValidTo: Long? = null
+
+        val COOKIE_DATETIME_FORMAT = DateTimeFormatter.ofPattern("EEE MMM dd HH:mm:ss zzz yyyy")!!
 
         fun enqueue(workManager: WorkManager, delaySecs: Long = 0) {
             workManager.enqueueUniqueWork(
@@ -110,6 +118,54 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
                 val lastDataTimestamp = lastDataTimestamp.value ?: return null
                 return System.currentTimeMillis() - lastDataTimestamp
             }
+
+        suspend fun reauthIfNeeded(context: Context) {
+            val token = token ?: return
+            val tokenValidTo = tokenValidTo ?: return
+
+            val now = System.currentTimeMillis()
+            if (now + 7 * 60 * 1000 < tokenValidTo) {
+                return
+            }
+
+            if (now > tokenValidTo) {
+                this.token = null
+                this.tokenValidTo = null
+                notifySessionExpiration(context)
+                return
+            }
+
+            val client = OkHttpClient.Builder()
+                .readTimeout(Duration.ofMinutes(3))
+                .build()
+
+            val res = client.newCall(
+                Request.Builder()
+                    .url("https://clcloud.minimed.eu/connect/carepartner/v6/login")
+                    .header("Authorization", "Bearer $token")
+                    .header("Cookie", "auth_tmp_token=$token")
+                    .post(FormBody.Builder().build())
+                    .build()
+            ).executeSuspend()
+
+            var newToken: String? = null
+            var newTokenValidTo: Long? = null
+            for (value in res.headers.values("Set-Cookie")) {
+                val (k, v) = value.split(";", limit = 2)[0]
+                    .split("=", limit = 2).map(String::trim)
+                when (k) {
+                    "auth_tmp_token" -> newToken = v
+                    "c_token_valid_to" -> newTokenValidTo =
+                        LocalDateTime.parse(v, COOKIE_DATETIME_FORMAT)
+                            .toEpochSecond(ZoneOffset.UTC) * 1000
+                }
+            }
+
+            if (newToken != null && newTokenValidTo != null) {
+                this.token = newToken
+                this.tokenValidTo = newTokenValidTo
+            }
+        }
     }
 
     override suspend fun doWork(): Result {
@@ -124,11 +180,14 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
         var data: MinimedData? = null
         try {
             val settings = context.settingsDataStore.data.first()
-            if (settings.password.isEmpty()) {
+            if (!settings.isValid()) {
                 return Result.success()
             }
 
-            data = fetchData(context, settings)
+            data = fetchData(context, settings.username, token ?: return Result.failure())
+
+            reauthIfNeeded(context)
+
             if (data != null) {
                 lastData.update { data }
                 lastDataTimestamp.update { System.currentTimeMillis() }
@@ -171,18 +230,24 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
     }
 }
 
-private suspend fun fetchData(context: Context, settings: Settings): MinimedData? {
+private suspend fun fetchData(context: Context, username: String, token: String): MinimedData? {
     val client = OkHttpClient.Builder()
         .readTimeout(Duration.ofMinutes(3))
         .build()
 
-    val payload = Payload(settings)
+    val payload = mapOf(
+        "patientId" to username,
+        "role" to "patient",
+        "username" to username
+    )
 
     for (i in 1..4) {
         try {
             val res = client.newCall(
-                Request.Builder().url("https://minimed-fetcher.odiak.workers.dev/fetch")
-                    .postJson(payload)
+                Request.Builder()
+                    .url("https://clcloud.minimed.eu/connect/carepartner/v6/display/message")
+                    .header("Authorization", "Bearer $token")
+                    .postJsonMap(payload)
                     .build()
             ).executeSuspend()
 
@@ -192,6 +257,14 @@ private suspend fun fetchData(context: Context, settings: Settings): MinimedData
                 file.writeBytes(bytes)
 
                 return bytes.toString(Charset.defaultCharset()).parseJson()
+            }
+
+            if (res.code == 401) {
+                Worker.token = null
+                Worker.tokenValidTo = null
+                notifySessionExpiration(context)
+
+                return null
             }
         } catch (e: Throwable) {
             Log.e("Worker", "Failed to fetch data", e)
@@ -223,7 +296,9 @@ private fun sendDataToWearDevice(context: Context, data: MinimedData) {
     Wearable.getMessageClient(context).sendMessage(id, "/data", buffer)
 }
 
-private fun notify(context: Context, data: MinimedData) {
+private const val CHANNEL_ID = "main"
+
+private fun notificationWrapper(context: Context, block: (NotificationManagerCompat) -> Unit) {
     if (ActivityCompat.checkSelfPermission(
             context,
             Manifest.permission.POST_NOTIFICATIONS
@@ -233,42 +308,67 @@ private fun notify(context: Context, data: MinimedData) {
     }
 
     val manager = NotificationManagerCompat.from(context)
-    if (manager.getNotificationChannel("main") == null) {
+    if (manager.getNotificationChannel(CHANNEL_ID) == null) {
         manager.createNotificationChannel(
             NotificationChannel(
-                "main",
+                CHANNEL_ID,
                 "Main",
                 NotificationManager.IMPORTANCE_HIGH
             )
         )
     }
 
-    val intent = Intent(context, MainActivity::class.java).apply {
-        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+    block(manager)
+}
+
+@SuppressLint("MissingPermission")
+private fun notify(context: Context, data: MinimedData) {
+    notificationWrapper(context) { manager ->
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val pendingIntent: PendingIntent =
+            PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+
+        val sg = data.lastSGString
+        val time = data.lastSGDateTime
+            ?.format(DateTimeFormatter.ofPattern("HH:mm"))
+        val diff = data.lastSGDiffString
+
+        val notification = NotificationCompat.Builder(context, "main")
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentText("SG: $sg $diff\nat $time")
+            .setContentIntent(pendingIntent)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setSilent(true)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .build()
+
+
+        try {
+            manager.notify(0, notification)
+        } catch (e: Throwable) {
+            Log.e("Worker", "Failed to notify", e)
+        }
     }
-    val pendingIntent: PendingIntent =
-        PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
-
-    val sg = data.lastSGString
-    val time = data.lastSGDateTime
-        ?.format(DateTimeFormatter.ofPattern("HH:mm"))
-    val diff = data.lastSGDiffString
-
-    val notification = NotificationCompat.Builder(context, "main")
-        .setPriority(NotificationCompat.PRIORITY_HIGH)
-        .setContentText("SG: $sg $diff\nat $time")
-        .setContentIntent(pendingIntent)
-        .setSmallIcon(R.drawable.ic_notification)
-        .setSilent(true)
-        .setOngoing(true)
-        .setAutoCancel(false)
-        .build()
+}
 
 
-    try {
-        manager.notify(0, notification)
-    } catch (e: Throwable) {
-        Log.e("Worker", "Failed to notify", e)
+@SuppressLint("MissingPermission")
+private fun notifySessionExpiration(context: Context) {
+    notificationWrapper(context) { manager ->
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentText("Session expired")
+            .setSmallIcon(R.drawable.ic_notification)
+            .build()
+
+        try {
+            manager.notify(0, notification)
+        } catch (e: Throwable) {
+            Log.e("Worker", "Failed to notify", e)
+        }
     }
 }
 
@@ -292,22 +392,9 @@ inline fun <reified T> String.parseJson(): T {
     return adapter.fromJson(this)!!
 }
 
-class Payload(
-    val username: String,
-    val password: String,
-    val country: String,
-    val language: String
-) {
-    constructor(settings: Settings) : this(
-        settings.username,
-        settings.password,
-        settings.country,
-        settings.language
-    )
-}
-
-inline fun <reified T> Request.Builder.postJson(obj: T): Request.Builder {
+@OptIn(ExperimentalStdlibApi::class)
+fun Request.Builder.postJsonMap(obj: Map<String, Any?>): Request.Builder {
     val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
-    val adapter = moshi.adapter(T::class.java)
+    val adapter = moshi.adapter<Map<String, Any?>>()
     return post(JsonRequestBody(adapter, obj))
 }

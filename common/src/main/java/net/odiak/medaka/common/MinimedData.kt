@@ -10,7 +10,8 @@ class MinimedData(
     val basal: Basal,
     @Json(name = "pumpBannerState")
     val pumpBannerStates: List<PumpBannerState> = emptyList(),
-    val timeToNextCalibrationMinutes: Int? = null
+    val timeToNextCalibrationMinutes: Int? = null,
+    val activeInsulin: ActiveInsulin? = null
 ) {
     val lastSGString: String
         get() = lastSG?.sgText ?: "??"
@@ -27,11 +28,11 @@ class MinimedData(
 
 class SensorGlucose(
     val datetime: String?,
-    val kind: String,
-    val relativeOffset: Int?,
+//    val kind: String,
+//    val relativeOffset: Int?,
     val sensorState: String?,
     val sg: Int,
-    val timeChange: Boolean?
+//    val timeChange: Boolean?
 ) {
     companion object {
         private val timeFormat = DateTimeFormatter.ofPattern("HH:mm")
@@ -81,3 +82,5 @@ class Basal(
 )
 
 class PumpBannerState(val type: String, val timeRemaining: Int? = null)
+
+class ActiveInsulin(val amount: Double)

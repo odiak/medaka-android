@@ -1,6 +1,5 @@
 package net.odiak.medaka
 
-import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
@@ -24,7 +23,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
@@ -50,18 +48,11 @@ class SettingsActivity : ComponentActivity() {
                 }) { padding ->
                     Box(Modifier.padding(padding)) {
                         settings.value?.let {
-                            Settings(it) { newSettings ->
-                                if (newSettings.password.isEmpty()) {
-                                    Toast.makeText(
-                                        this@SettingsActivity,
-                                        "Password must not be empty",
-                                        Toast.LENGTH_SHORT
-                                    )
+                            Settings(it, onSave = { newSettings ->
+                                val error = newSettings.validate()
+                                if (error != null) {
+                                    Toast.makeText(this@SettingsActivity, error, Toast.LENGTH_SHORT)
                                         .show()
-                                    return@Settings
-                                }
-
-                                if (!validate(newSettings, this@SettingsActivity)) {
                                     return@Settings
                                 }
 
@@ -72,7 +63,7 @@ class SettingsActivity : ComponentActivity() {
                                     startActivity(intent)
                                     finish()
                                 }
-                            }
+                            })
                         } ?: CircularProgressIndicator()
                     }
                 }
@@ -84,7 +75,6 @@ class SettingsActivity : ComponentActivity() {
 @Composable
 fun Settings(settings: Settings, onSave: (Settings) -> Unit) {
     val username = remember { mutableStateOf(settings.username) }
-    val password = remember { mutableStateOf(settings.password) }
     val country = remember { mutableStateOf(settings.country) }
     val language = remember { mutableStateOf(settings.language) }
 
@@ -94,17 +84,6 @@ fun Settings(settings: Settings, onSave: (Settings) -> Unit) {
             value = username.value,
             onValueChange = { username.value = it },
             label = { Text("Username") },
-            singleLine = true
-        )
-
-        Spacer(modifier = Modifier.padding(8.dp))
-
-        TextField(
-            modifier = Modifier.fillMaxWidth(),
-            value = password.value,
-            onValueChange = { password.value = it },
-            label = { Text("Password") },
-            visualTransformation = PasswordVisualTransformation(),
             singleLine = true
         )
 
@@ -140,7 +119,6 @@ fun Settings(settings: Settings, onSave: (Settings) -> Unit) {
                 onSave(
                     settings.toBuilder().also {
                         it.username = username.value
-                        it.password = password.value
                         it.country = country.value
                         it.language = language.value
                     }.build()
@@ -160,33 +138,8 @@ fun SettingsPreview() {
     Settings(
         Settings.newBuilder()
             .setUsername("username")
-            .setPassword("password")
             .setCountry("us")
             .setLanguage("en")
             .build()
     ) {}
-}
-
-private fun validate(settings: Settings, context: Context): Boolean {
-    if (settings.username.isEmpty()) {
-        Toast.makeText(context, "Username must not be empty", Toast.LENGTH_SHORT).show()
-        return false
-    }
-
-    if (settings.password.isEmpty()) {
-        Toast.makeText(context, "Password must not be empty", Toast.LENGTH_SHORT).show()
-        return false
-    }
-
-    if (settings.country.isEmpty()) {
-        Toast.makeText(context, "Country must not be empty", Toast.LENGTH_SHORT).show()
-        return false
-    }
-
-    if (settings.language.isEmpty()) {
-        Toast.makeText(context, "Language must not be empty", Toast.LENGTH_SHORT).show()
-        return false
-    }
-
-    return true
 }

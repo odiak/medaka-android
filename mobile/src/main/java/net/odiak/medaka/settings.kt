@@ -23,3 +23,20 @@ val Context.settingsDataStore by dataStore(
     fileName = "settings.pb",
     serializer = SettingsSerializer()
 )
+
+fun Settings.validate(): String? {
+    if (username.isEmpty()) {
+        return "Username must not be empty"
+    }
+    if (language.isEmpty()) {
+        return "Language must not be empty"
+    }
+    if (country.isEmpty()) {
+        return "Country must not be empty"
+    }
+    return null
+}
+
+fun Settings.isValid(): Boolean {
+    return validate() == null
+}
