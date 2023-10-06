@@ -13,8 +13,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import net.odiak.medaka.theme.MedakaTheme
-import java.time.LocalDateTime
-import java.time.ZoneOffset
 
 class LoginActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
@@ -50,14 +48,11 @@ class LoginActivity : ComponentActivity() {
                 val tokenValidToStr = cookieMap["c_token_valid_to"]
                 if (token.isNullOrBlank() || tokenValidToStr.isNullOrBlank()) return
 
-                val tokenValidTo = LocalDateTime
-                    .parse(tokenValidToStr, Worker.COOKIE_DATETIME_FORMAT)
-                    .toEpochSecond(ZoneOffset.UTC) * 1000
+                val tokenValidTo = tokenValidToStr.parseTokenValidTo()
 
                 if (tokenValidTo < System.currentTimeMillis()) return
 
-                Worker.token = token
-                Worker.tokenValidTo = tokenValidTo
+                Worker.setToken(this@LoginActivity, token, tokenValidTo)
 
                 cookieManager.setCookie("https://carelink.minimed.eu/", "auth_tmp_token=")
                 cookieManager.setCookie("https://carelink.minimed.eu/", "c_token_valid_to=")
@@ -79,6 +74,7 @@ class LoginActivity : ComponentActivity() {
                         webView.settings.javaScriptEnabled = true
                         webView.settings.loadsImagesAutomatically = true
                         webView.settings.domStorageEnabled = true
+                        webView.settings.userAgentString = "Test"
                         cookieManager.setAcceptThirdPartyCookies(webView, true)
 
                         val s = settings.value

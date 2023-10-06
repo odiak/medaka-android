@@ -39,9 +39,9 @@ import net.odiak.medaka.common.DataForWear
 import net.odiak.medaka.common.MinimedData
 import okhttp3.Call
 import okhttp3.Callback
-import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okio.IOException
 import java.io.File
@@ -60,13 +60,17 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
 
     companion object {
         const val cacheFile = "data.json"
+        private const val tokenFile = "token"
         const val workerName = "worker"
         private const val workerNamePeriodic = "worker-periodic"
         val lastData = MutableStateFlow<MinimedData?>(null)
         val lastDataTimestamp = MutableStateFlow<Long?>(null)
 
         var token: String? = null
+            private set
         var tokenValidTo: Long? = null
+            private set
+        private var isTokenRestored = false
 
         val COOKIE_DATETIME_FORMAT = DateTimeFormatter.ofPattern("EEE MMM dd HH:mm:ss zzz yyyy")!!
 
@@ -119,51 +123,41 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
                 return System.currentTimeMillis() - lastDataTimestamp
             }
 
-        suspend fun reauthIfNeeded(context: Context) {
-            val token = token ?: return
-            val tokenValidTo = tokenValidTo ?: return
 
-            val now = System.currentTimeMillis()
-            if (now + 7 * 60 * 1000 < tokenValidTo) {
-                return
-            }
+        fun setToken(context: Context?, token: String?, tokenValidTo: Long?) {
+            this.token = token
+            this.tokenValidTo = tokenValidTo
 
-            if (now > tokenValidTo) {
-                this.token = null
-                this.tokenValidTo = null
-                notifySessionExpiration(context)
-                return
-            }
-
-            val client = OkHttpClient.Builder()
-                .readTimeout(Duration.ofMinutes(3))
-                .build()
-
-            val res = client.newCall(
-                Request.Builder()
-                    .url("https://clcloud.minimed.eu/connect/carepartner/v6/login")
-                    .header("Authorization", "Bearer $token")
-                    .header("Cookie", "auth_tmp_token=$token")
-                    .post(FormBody.Builder().build())
-                    .build()
-            ).executeSuspend()
-
-            var newToken: String? = null
-            var newTokenValidTo: Long? = null
-            for (value in res.headers.values("Set-Cookie")) {
-                val (k, v) = value.split(";", limit = 2)[0]
-                    .split("=", limit = 2).map(String::trim)
-                when (k) {
-                    "auth_tmp_token" -> newToken = v
-                    "c_token_valid_to" -> newTokenValidTo =
-                        LocalDateTime.parse(v, COOKIE_DATETIME_FORMAT)
-                            .toEpochSecond(ZoneOffset.UTC) * 1000
+            if (context != null) {
+                val file = File(context.filesDir, tokenFile)
+                if (token != null && tokenValidTo != null) {
+                    file.writeText("$token\n$tokenValidTo")
+                } else {
+                    file.writeText("")
                 }
             }
+        }
 
-            if (newToken != null && newTokenValidTo != null) {
-                this.token = newToken
-                this.tokenValidTo = newTokenValidTo
+        private fun restoreToken(context: Context) {
+            if (isTokenRestored) return
+            isTokenRestored = true
+
+            try {
+                val file = File(context.filesDir, tokenFile)
+                if (!file.exists()) return
+
+                val lines = file.readLines()
+                if (lines.size != 2) return
+
+                val token = lines[0]
+                val tokenValidTo = lines[1].toLongOrNull()
+
+                if (token.isNotEmpty() && tokenValidTo != null) {
+                    this.token = token
+                    this.tokenValidTo = tokenValidTo
+                }
+            } catch (e: Throwable) {
+                Log.e("Worker", "Failed to restore token", e)
             }
         }
     }
@@ -171,6 +165,8 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
     override suspend fun doWork(): Result {
         val context = applicationContext
         val workManager = WorkManager.getInstance(context)
+
+        restoreToken(context)
 
         val isPeriodic = inputData.getBoolean("periodic", false)
         if (isPeriodic && !shouldContinueOnPeriodicWork(workManager)) {
@@ -184,9 +180,9 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
                 return Result.success()
             }
 
-            data = fetchData(context, settings.username, token ?: return Result.failure())
-
             reauthIfNeeded(context)
+
+            data = fetchData(context, settings.username, token ?: return Result.failure())
 
             if (data != null) {
                 lastData.update { data }
@@ -259,9 +255,10 @@ private suspend fun fetchData(context: Context, username: String, token: String)
                 return bytes.toString(Charset.defaultCharset()).parseJson()
             }
 
+            res.body?.close()
+
             if (res.code == 401) {
-                Worker.token = null
-                Worker.tokenValidTo = null
+                Worker.setToken(context, null, null)
                 notifySessionExpiration(context)
 
                 return null
@@ -358,18 +355,72 @@ private fun notify(context: Context, data: MinimedData) {
 @SuppressLint("MissingPermission")
 private fun notifySessionExpiration(context: Context) {
     notificationWrapper(context) { manager ->
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val pendingIntent: PendingIntent =
+            PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentText("Session expired")
             .setSmallIcon(R.drawable.ic_notification)
             .build()
 
         try {
-            manager.notify(0, notification)
+            manager.notify(1, notification)
         } catch (e: Throwable) {
             Log.e("Worker", "Failed to notify", e)
         }
     }
+}
+
+private suspend fun reauthIfNeeded(context: Context) {
+    val token = Worker.token ?: return
+    val tokenValidTo = Worker.tokenValidTo ?: return
+
+    val now = System.currentTimeMillis()
+    if (now + 7 * 60 * 1000 < tokenValidTo) {
+        return
+    }
+
+    if (now > tokenValidTo) {
+        Worker.setToken(context, null, null)
+        notifySessionExpiration(context)
+        return
+    }
+
+    val client = OkHttpClient.Builder()
+        .readTimeout(Duration.ofMinutes(3))
+        .build()
+
+    val res = client.newCall(
+        Request.Builder()
+            .url("https://carelink.minimed.eu/patient/sso/reauth")
+            .header("Authorization", "Bearer $token")
+            .header("Cookie", "auth_tmp_token=$token")
+            .post("".toRequestBody())
+            .build()
+    ).executeSuspend()
+
+    var newToken: String? = null
+    var newTokenValidToStr: String? = null
+    for (value in res.headers.values("Set-Cookie")) {
+        val (k, v) = value.split(";", limit = 2)[0]
+            .split("=", limit = 2).map(String::trim)
+        when (k) {
+            "auth_tmp_token" -> newToken = v
+            "c_token_valid_to" -> newTokenValidToStr = v
+
+        }
+    }
+
+    if (newToken != null && newTokenValidToStr != null) {
+        Worker.setToken(context, newToken, newTokenValidToStr.parseTokenValidTo())
+    }
+
+    res.body?.close()
 }
 
 suspend fun Call.executeSuspend(): Response {
@@ -397,4 +448,10 @@ fun Request.Builder.postJsonMap(obj: Map<String, Any?>): Request.Builder {
     val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
     val adapter = moshi.adapter<Map<String, Any?>>()
     return post(JsonRequestBody(adapter, obj))
+}
+
+fun String.parseTokenValidTo(): Long {
+    return LocalDateTime
+        .parse(this, Worker.COOKIE_DATETIME_FORMAT)
+        .toEpochSecond(ZoneOffset.UTC) * 1000
 }
