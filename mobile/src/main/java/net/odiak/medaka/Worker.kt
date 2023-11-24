@@ -381,7 +381,7 @@ private suspend fun reauthIfNeeded(context: Context) {
     val tokenValidTo = Worker.tokenValidTo ?: return
 
     val now = System.currentTimeMillis()
-    if (now + 7 * 60 * 1000 < tokenValidTo) {
+    if (now + 10 * 60 * 1000 < tokenValidTo) {
         return
     }
 
