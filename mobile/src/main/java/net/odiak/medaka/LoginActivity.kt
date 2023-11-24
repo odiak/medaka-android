@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.work.WorkManager
 import net.odiak.medaka.theme.MedakaTheme
 
 class LoginActivity : ComponentActivity() {
@@ -56,6 +57,10 @@ class LoginActivity : ComponentActivity() {
 
                 cookieManager.setCookie("https://carelink.minimed.eu/", "auth_tmp_token=")
                 cookieManager.setCookie("https://carelink.minimed.eu/", "c_token_valid_to=")
+
+                val workManager = WorkManager.getInstance(this@LoginActivity)
+                Worker.enqueue(workManager)
+
                 finish()
             }
         }
