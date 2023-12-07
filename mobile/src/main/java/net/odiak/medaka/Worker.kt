@@ -107,13 +107,19 @@ class Worker(context: Context, params: WorkerParameters) : CoroutineWorker(conte
 
             val cache = File(context.filesDir, cacheFile)
             if (cache.exists()) {
-                val data = cache.readText().parseJson<MinimedData>()
-                lastData.update { data }
-                CoroutineScope(Dispatchers.IO).launch {
-                    notify(context, data)
-                    sendDataToWearDevice(context, data)
+                val data = try {
+                    cache.readText().parseJson<MinimedData>()
+                } catch (e: Throwable) {
+                    Log.e("Worker", "Failed to parse cache", e)
+                    null
                 }
-
+                if (data != null) {
+                    lastData.update { data }
+                    CoroutineScope(Dispatchers.IO).launch {
+                        notify(context, data)
+                        sendDataToWearDevice(context, data)
+                    }
+                }
             }
         }
 
