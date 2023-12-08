@@ -60,6 +60,9 @@ fun Plot(sgs: List<SensorGlucose>) {
     else
         Color(0x40ffffff)
 
+    val maxScale = 10.0f
+    val minScale = 1.0f
+
     var scale by remember { mutableStateOf(1.0f) }
     var offset by remember { mutableStateOf(0f) }
     var width = 0f
@@ -72,7 +75,7 @@ fun Plot(sgs: List<SensorGlucose>) {
     LaunchedEffect(width) {
         if (width != 0f) {
             initiallyScrolled = true
-            scale = 3.0f
+            scale = 5.0f
             offset = p * 2 + (width - p * 2) * scale - width
         }
     }
@@ -87,10 +90,10 @@ fun Plot(sgs: List<SensorGlucose>) {
                 detectTransformGestures { centroid, _, zoom, _ ->
                     val oldScale = scale
                     scale *= zoom
-                    if (scale < 1.0f) {
-                        scale = 1.0f
-                    } else if (scale > 8.0f) {
-                        scale = 5.0f
+                    if (scale < minScale) {
+                        scale = minScale
+                    } else if (scale > maxScale) {
+                        scale = maxScale
                     }
 
                     val actualZoom = scale / oldScale
