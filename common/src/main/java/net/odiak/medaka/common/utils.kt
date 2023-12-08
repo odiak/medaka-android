@@ -41,3 +41,9 @@ fun LocalDateTime.relativeTextTo(now: LocalDateTime): String {
         else -> "${seconds}s ago"
     }
 }
+
+fun <T : Comparable<T>> Iterable<T>.minMaxOrNull(): Pair<T?, T?> {
+    val min = minOrNull()
+    val max = maxOrNull()
+    return min to max
+}

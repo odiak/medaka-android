@@ -56,6 +56,7 @@ import net.odiak.medaka.common.relativeTextTo
 import net.odiak.medaka.common.signed
 import net.odiak.medaka.theme.MedakaTheme
 import java.time.LocalDateTime
+import kotlin.math.sin
 import kotlin.time.Duration.Companion.minutes
 
 class MainActivity : ComponentActivity() {
@@ -221,7 +222,11 @@ fun Main(data: MinimedData, workState: WorkInfo.State?, now: LocalDateTime) {
             Text("next calibration: after $h:$m")
         }
 
-        Spacer(modifier = Modifier.padding(16.dp))
+        Spacer(modifier = Modifier.padding(8.dp))
+
+        Plot(data.sgs)
+
+        Spacer(modifier = Modifier.padding(8.dp))
 
         Text("fetching status: ${workState ?: "NONE"}")
 
@@ -231,13 +236,18 @@ fun Main(data: MinimedData, workState: WorkInfo.State?, now: LocalDateTime) {
             items(sgItems.size) { i ->
                 val (index, item) = sgItems[i]
                 val sgDiff = if (index > 0) {
-                    (item.sg - data.sgs[index - 1].sg).signed()
+                    val sg = item.sgValue ?: 0
+                    val sg1 = data.sgs[index - 1].sgValue ?: 0
+                    (sg - sg1).signed()
                 } else {
                     ""
                 }
                 val sgDiffDiff = if (index > 1) {
-                    val diff1 = item.sg - data.sgs[index - 1].sg
-                    val diff2 = data.sgs[index - 1].sg - data.sgs[index - 2].sg
+                    val sg = item.sgValue ?: 0
+                    val sg1 = data.sgs[index - 1].sgValue ?: 0
+                    val sg2 = data.sgs[index - 2].sgValue ?: 0
+                    val diff1 = sg - sg1
+                    val diff2 = sg1 - sg2
                     val v = (diff1 - diff2).signed()
                     "($v)"
                 } else {
@@ -252,23 +262,16 @@ fun Main(data: MinimedData, workState: WorkInfo.State?, now: LocalDateTime) {
 @Preview
 @Composable
 fun MainPreview() {
-    val sgs = listOf(
+    val sgs = (0..20).map { i ->
+        val h = (i / 60).toString().padStart(2, '0')
+        val m = (i % 60).toString().padStart(2, '0')
         SensorGlucose(
-            datetime = "2023-08-01T00:00:00Z",
+            datetime = "2023-08-01T$h:$m:00Z",
             sensorState = SensorGlucose.SensorStates.NO_ERROR_MESSAGE,
-            sg = 120,
-        ),
-        SensorGlucose(
-            datetime = "2023-08-01T00:05:00Z",
-            sensorState = SensorGlucose.SensorStates.NO_ERROR_MESSAGE,
-            sg = 122,
-        ),
-        SensorGlucose(
-            datetime = "2023-08-01T00:10:00Z",
-            sensorState = SensorGlucose.SensorStates.NO_ERROR_MESSAGE,
-            sg = 130,
+            sg = (sin(i.toDouble() * 0.6) * 40 + 100).toInt(),
         )
-    )
+    }
+
     Main(
         MinimedData(
             sgs = sgs,
@@ -283,3 +286,5 @@ fun MainPreview() {
         LocalDateTime.of(2023, 8, 1, 0, 12)
     )
 }
+
+

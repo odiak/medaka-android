@@ -69,6 +69,15 @@ class SensorGlucose(
             }
         }
 
+    val sgValue: Int?
+        get() {
+            return when (sensorState) {
+                SensorStates.NO_ERROR_MESSAGE, SensorStates.NORMAL -> sg
+                SensorStates.Above400MGDL -> 400
+                else -> null
+            }
+        }
+
     val timeText: String
         get() = datetime?.parseISODateTime()?.format(timeFormat) ?: "??"
 }
