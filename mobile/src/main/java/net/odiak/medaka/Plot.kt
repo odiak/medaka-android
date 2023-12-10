@@ -51,9 +51,14 @@ fun Plot(sgs: List<SensorGlucose>) {
         Color(0xff303030)
 
     val dotColor = if (isLightMode)
-        Color(0xff000000)
+        Color(0x70777777)
     else
-        Color(0xffffffff)
+        Color(0x70ffffff)
+
+    val lineColorBase = if (isLightMode)
+        Color(0xffbbbbbb)
+    else
+        Color(0xffeeeeee)
 
     val gridColor = if (isLightMode)
         Color(0x40000000)
@@ -66,7 +71,12 @@ fun Plot(sgs: List<SensorGlucose>) {
     var scale by remember { mutableStateOf(1.0f) }
     var offset by remember { mutableStateOf(0f) }
     var width = 0f
-    val p = with(LocalDensity.current) { 4.dp.toPx() }
+    val pTop = with(LocalDensity.current) { 4.dp.toPx() }
+    val pRight = pTop
+    val pLeft = with(LocalDensity.current) { 20.sp.toPx() }
+    val pBottom = with(LocalDensity.current) { 16.sp.toPx() }
+    val pLR = pLeft + pRight
+    val pTB = pTop + pBottom
 
     var initiallyScrolled by remember { mutableStateOf(false) }
 
@@ -76,7 +86,7 @@ fun Plot(sgs: List<SensorGlucose>) {
         if (width != 0f) {
             initiallyScrolled = true
             scale = 5.0f
-            offset = p * 2 + (width - p * 2) * scale - width
+            offset = pLR + (width - pLR) * scale - width
         }
     }
 
@@ -103,8 +113,8 @@ fun Plot(sgs: List<SensorGlucose>) {
 
                     if (offset < 0) {
                         offset = 0f
-                    } else if (p * 2 + (width - p * 2) * scale - offset < width) {
-                        offset = p * 2 + (width - p * 2) * scale - width
+                    } else if (pLR + (width - pLR) * scale - offset < width) {
+                        offset = pLR + (width - pLR) * scale - width
                     }
                 }
             }
@@ -114,8 +124,8 @@ fun Plot(sgs: List<SensorGlucose>) {
                     offset -= dragAmount
                     if (offset < 0) {
                         offset = 0f
-                    } else if (p * 2 + (width - p * 2) * scale - offset < width) {
-                        offset = p * 2 + (width - p * 2) * scale - width
+                    } else if (pLR + (width - pLR) * scale - offset < width) {
+                        offset = pLR + (width - pLR) * scale - width
                     }
                 }
             }
@@ -130,14 +140,14 @@ fun Plot(sgs: List<SensorGlucose>) {
             val lastSgOClockDT = lastSgOClock.parseISODateTime()
             val lastSgOClockEpoch = lastSgOClockDT.toEpochSecond(ZoneOffset.UTC)
             var oClockX =
-                p + ((lastSgOClockEpoch - minTime) / timeRange * (width - p * 2)) * scale - offset
+                pLeft + ((lastSgOClockEpoch - minTime) / timeRange * (width - pLR)) * scale - offset
             var h = lastSgOClockDT.hour
-            while (oClockX > 0) {
+            while (oClockX > pLeft) {
                 if (oClockX < width - 0) {
                     drawLine(
                         color = gridColor,
-                        start = Offset(oClockX, 0f),
-                        end = Offset(oClockX, height - 16.sp.toPx()),
+                        start = Offset(oClockX, pTop),
+                        end = Offset(oClockX, height - pBottom),
                         strokeWidth = 1.dp.toPx()
                     )
                     drawText(
@@ -147,14 +157,40 @@ fun Plot(sgs: List<SensorGlucose>) {
                         style = TextStyle(color = gridColor, fontSize = 10.sp)
                     )
                 }
-                oClockX -= (60 * 60) / timeRange * (width - p * 2) * scale
+                oClockX -= (60 * 60) / timeRange * (width - pLR) * scale
                 h = (h + 23) % 24
+            }
+        }
+
+        // draw horizontal line for each 50mg/dL
+        run {
+            var sg = (minSg / 50) * 50
+            while (sg <= maxSg) {
+                val y = pTop + (1 - (sg - minSg) / sgRange) * (height - pTB)
+                if (y > 0 && y < height - 0) {
+                    drawLine(
+                        color = gridColor,
+                        start = Offset(pLeft, y),
+                        end = Offset(width, y),
+                        strokeWidth = 1.dp.toPx()
+                    )
+                    drawText(
+                        textMeasurer = textMeasurer,
+                        text = sg.toString(),
+                        topLeft = Offset(0f, y - 6.sp.toPx()),
+                        style = TextStyle(color = gridColor, fontSize = 10.sp)
+                    )
+                }
+                sg += 50
             }
         }
 
         var isLineBegun = false
         var prevX = 0f
         var prevY = 0f
+        var prevSg: Int? = null
+
+        val dots = mutableListOf<Offset>()
 
         for (sg in sgs) {
             val sgValue = sg.sgValue
@@ -165,24 +201,65 @@ fun Plot(sgs: List<SensorGlucose>) {
                 continue
             }
 
-            val x = p + ((time - minTime) / timeRange * (width - p * 2)) * scale - offset
-            val y = p + (1 - (sgValue - minSg) / sgRange) * (height - p * 2)
+            val x = pLeft + ((time - minTime) / timeRange * (width - pLR)) * scale - offset
+            val y = pTop + (1 - (sgValue - minSg) / sgRange) * (height - pTB)
+
+            val isInRange = x >= pLeft && x <= width - pRight
+
+            val sgDiff = prevSg?.let { sgValue - it }
+            // sgDiff が0の場合は白で、大きいほど赤く、小さいほど青くする
+            val lineColor = if (sgDiff == null) {
+                lineColorBase
+            } else {
+                val t = (sgDiff / 30f).coerceIn(-1f, 1f)
+                if (t < 0) {
+                    blendColor(lineColorBase, Color.Blue, -t)
+                } else {
+                    blendColor(lineColorBase, Color.Red, t)
+                }
+            }
 
             if (isLineBegun) {
-                drawLine(
-                    color = dotColor,
-                    start = Offset(prevX, prevY),
-                    end = Offset(x, y),
-                    strokeWidth = 2.dp.toPx()
-                )
+                if (isInRange) {
+                    val fromX: Float
+                    val fromY: Float
+                    if (prevX < pLeft) {
+                        fromX = pLeft
+                        fromY = prevY + (y - prevY) * (fromX - prevX) / (x - prevX)
+                    } else {
+                        fromX = prevX
+                        fromY = prevY
+                    }
+                    drawLine(
+                        color = lineColor,
+                        start = Offset(fromX, fromY),
+                        end = Offset(x, y),
+                        strokeWidth = 3.dp.toPx()
+                    )
+                }
             } else {
                 isLineBegun = true
             }
 
-            drawCircle(color = dotColor, radius = 2.dp.toPx(), center = Offset(x, y))
+            if (isInRange) {
+                dots.add(Offset(x, y))
+            }
 
             prevX = x
             prevY = y
+            prevSg = sgValue
+        }
+
+        for (p in dots) {
+            drawCircle(color = dotColor, radius = 2.5f.dp.toPx(), center = p)
         }
     }
+}
+
+private fun blendColor(c1: Color, c2: Color, t: Float): Color {
+    val r = c1.red * (1 - t) + c2.red * t
+    val g = c1.green * (1 - t) + c2.green * t
+    val b = c1.blue * (1 - t) + c2.blue * t
+    val a = c1.alpha * (1 - t) + c2.alpha * t
+    return Color(r, g, b, a)
 }

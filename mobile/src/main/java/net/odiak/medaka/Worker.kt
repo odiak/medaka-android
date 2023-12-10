@@ -287,7 +287,7 @@ private fun sendDataToWearDevice(context: Context, data: MinimedData) {
     val id = capabilityInfo.nodes.minByOrNull { if (it.isNearby) 0 else 1 }?.id ?: return
 
     val dataForWear = DataForWear(
-        lastSG = data.lastSGString,
+        lastSG = data.lastSGString + data.lastSGTrendString,
         lastSGDiff = data.lastSGDiffString,
         lastSGTime = data.lastSGDateTime?.format(DateTimeFormatter.ofPattern("HH:mm")),
     )
@@ -337,10 +337,13 @@ private fun notify(context: Context, data: MinimedData) {
         val time = data.lastSGDateTime
             ?.format(DateTimeFormatter.ofPattern("HH:mm"))
         val diff = data.lastSGDiffString
+        val trend = data.lastSGTrendString.let {
+            if (it.isEmpty()) "" else " $it"
+        }
 
         val notification = NotificationCompat.Builder(context, "main")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setContentText("SG: $sg $diff\nat $time")
+            .setContentText("SG: $sg$trend $diff\nat $time")
             .setContentIntent(pendingIntent)
             .setSmallIcon(R.drawable.ic_notification)
             .setSilent(true)

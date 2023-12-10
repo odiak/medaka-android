@@ -11,7 +11,8 @@ class MinimedData(
     @Json(name = "pumpBannerState")
     val pumpBannerStates: List<PumpBannerState> = emptyList(),
     val timeToNextCalibrationMinutes: Int? = null,
-    val activeInsulin: ActiveInsulin? = null
+    val activeInsulin: ActiveInsulin? = null,
+    val lastSGTrend: String? = null,
 ) {
     val lastSGString: String
         get() = lastSG?.sgText ?: "??"
@@ -23,6 +24,19 @@ class MinimedData(
         get() {
             if (sgs.size < 2) return ""
             return (sgs[sgs.size - 1].sg - sgs[sgs.size - 2].sg).signed()
+        }
+
+    val lastSGTrendString: String
+        get() {
+            return when (lastSGTrend) {
+                "UP" -> "↑"
+                "UP_DOUBLE" -> "↑↑"
+                "UP_TRIPLE" -> "↑↑↑"
+                "DOWN" -> "↓"
+                "DOWN_DOUBLE" -> "↓↓"
+                "DOWN_TRIPLE" -> "↓↓↓"
+                else -> ""
+            }
         }
 }
 

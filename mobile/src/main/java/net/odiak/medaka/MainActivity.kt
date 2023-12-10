@@ -171,6 +171,10 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun Main(data: MinimedData, workState: WorkInfo.State?, now: LocalDateTime) {
     Column {
+        Text("fetching status: ${workState ?: "NONE"}")
+
+        Spacer(modifier = Modifier.padding(2.dp))
+
         val last = data.lastSG
         val datetime = last?.datetime?.parseISODateTime()
         if (last == null || datetime == null) {
@@ -181,6 +185,10 @@ fun Main(data: MinimedData, workState: WorkInfo.State?, now: LocalDateTime) {
             Text(buildAnnotatedString {
                 withStyle(style = SpanStyle(fontSize = 24.sp)) {
                     append(data.lastSGString)
+                    val trend = data.lastSGTrendString
+                    if (trend.isNotEmpty()) {
+                        append(" $trend")
+                    }
                 }
                 append(" -- $relativeTime")
             })
@@ -227,8 +235,6 @@ fun Main(data: MinimedData, workState: WorkInfo.State?, now: LocalDateTime) {
         Plot(data.sgs)
 
         Spacer(modifier = Modifier.padding(8.dp))
-
-        Text("fetching status: ${workState ?: "NONE"}")
 
         val sgItems = data.sgs.withIndex().toList().reversed()
 
@@ -280,7 +286,8 @@ fun MainPreview() {
             pumpBannerStates = listOf(
                 PumpBannerState(type = "FOO", timeRemaining = 100),
                 PumpBannerState(type = "BAR")
-            )
+            ),
+            lastSGTrend = "UP_DOUBLE",
         ),
         null,
         LocalDateTime.of(2023, 8, 1, 0, 12)
