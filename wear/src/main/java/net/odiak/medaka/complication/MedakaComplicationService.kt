@@ -16,15 +16,15 @@ class MedakaComplicationService : ComplicationDataSourceService() {
         request: ComplicationRequest,
         listener: ComplicationRequestListener
     ) {
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-        }
+        val intent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
         val data = ListeningService.lastData.value
 
+        val text = data?.lastSG?.replace("mg/dL", "")?.replace("over ", ">") ?: ""
+
         listener.onComplicationData(
             ShortTextComplicationData.Builder(
-                PlainComplicationText.Builder(data?.lastSG?.removeSuffix("mg/dL") ?: "").build(),
+                PlainComplicationText.Builder(text).build(),
                 PlainComplicationText.Builder("").build()
             ).setTapAction(pendingIntent).build()
         )
@@ -34,7 +34,7 @@ class MedakaComplicationService : ComplicationDataSourceService() {
         return when (type) {
             ComplicationType.SHORT_TEXT -> {
                 ShortTextComplicationData.Builder(
-                    PlainComplicationText.Builder("100mg/dL").build(),
+                    PlainComplicationText.Builder("100↑").build(),
                     PlainComplicationText.Builder("").build()
                 ).build()
             }

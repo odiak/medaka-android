@@ -23,6 +23,8 @@ import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import net.odiak.medaka.common.SensorGlucose
@@ -65,16 +67,18 @@ fun Plot(sgs: List<SensorGlucose>) {
     else
         Color(0x40ffffff)
 
+    val lineWidth = 3.dp.toPx()
+
     val maxScale = 10.0f
     val minScale = 1.0f
 
     var scale by remember { mutableStateOf(1.0f) }
     var offset by remember { mutableStateOf(0f) }
     var width = 0f
-    val pTop = with(LocalDensity.current) { 4.dp.toPx() }
-    val pRight = pTop
-    val pLeft = with(LocalDensity.current) { 20.sp.toPx() }
-    val pBottom = with(LocalDensity.current) { 16.sp.toPx() }
+    val pTop = 4.dp.toPx()
+    val pRight = 4.sp.toPx()
+    val pLeft = 20.sp.toPx()
+    val pBottom = 16.sp.toPx()
     val pLR = pLeft + pRight
     val pTB = pTop + pBottom
 
@@ -234,7 +238,7 @@ fun Plot(sgs: List<SensorGlucose>) {
                         color = lineColor,
                         start = Offset(fromX, fromY),
                         end = Offset(x, y),
-                        strokeWidth = 3.dp.toPx()
+                        strokeWidth = lineWidth
                     )
                 }
             } else {
@@ -262,4 +266,14 @@ private fun blendColor(c1: Color, c2: Color, t: Float): Color {
     val b = c1.blue * (1 - t) + c2.blue * t
     val a = c1.alpha * (1 - t) + c2.alpha * t
     return Color(r, g, b, a)
+}
+
+@Composable
+private fun Dp.toPx() = with(LocalDensity.current) {
+    this@toPx.toPx()
+}
+
+@Composable
+private fun TextUnit.toPx() = with(LocalDensity.current) {
+    this@toPx.toPx()
 }
