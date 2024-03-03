@@ -6,19 +6,35 @@ import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.work.WorkManager
 import net.odiak.medaka.theme.MedakaTheme
 
 class LoginActivity : ComponentActivity() {
+
+    private var webView: WebView? = null
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                webView?.let {
+                    if (it.canGoBack()) {
+                        it.goBack()
+                    } else {
+                        finish()
+                    }
+                }
+            }
+        })
+
 
         val cookieManager = CookieManager.getInstance()
         val webViewClient = object : WebViewClient() {
@@ -37,31 +53,7 @@ class LoginActivity : ComponentActivity() {
                     )
                 }
 
-                val cookie = cookieManager.getCookie(url) ?: return
-                val cookieParts = cookie.split(";")
-                val cookieMap = cookieParts.mapNotNull { part ->
-                    val kv = part.split("=", ignoreCase = false, limit = 2)
-                    if (kv.size != 2) return@mapNotNull null
-                    kv[0].trim() to kv[1].trim()
-                }.toMap()
-
-                val token = cookieMap["auth_tmp_token"]
-                val tokenValidToStr = cookieMap["c_token_valid_to"]
-                if (token.isNullOrBlank() || tokenValidToStr.isNullOrBlank()) return
-
-                val tokenValidTo = tokenValidToStr.parseTokenValidTo()
-
-                if (tokenValidTo < System.currentTimeMillis()) return
-
-                Worker.setToken(this@LoginActivity, token, tokenValidTo)
-
-                cookieManager.setCookie("https://carelink.minimed.eu/", "auth_tmp_token=")
-                cookieManager.setCookie("https://carelink.minimed.eu/", "c_token_valid_to=")
-
-                val workManager = WorkManager.getInstance(this@LoginActivity)
-                Worker.enqueue(workManager)
-
-                finish()
+                handleCookie(cookieManager, url)
             }
         }
 
@@ -75,6 +67,8 @@ class LoginActivity : ComponentActivity() {
                         .fillMaxHeight(),
                     factory = ::WebView,
                     update = { webView ->
+                        this.webView = webView
+
                         webView.webViewClient = webViewClient
                         webView.settings.javaScriptEnabled = true
                         webView.settings.loadsImagesAutomatically = true
@@ -92,5 +86,32 @@ class LoginActivity : ComponentActivity() {
                     })
             }
         }
+    }
+
+    private fun handleCookie(cookieManager: CookieManager, url: String) {
+        val cookie = cookieManager.getCookie(url) ?: return
+        val cookieParts = cookie.split(";")
+        val cookieMap = cookieParts.mapNotNull { part ->
+            val kv = part.split("=", ignoreCase = false, limit = 2)
+            if (kv.size != 2) return@mapNotNull null
+            kv[0].trim() to kv[1].trim()
+        }.toMap()
+
+        val token = cookieMap["auth_tmp_token"]
+        val tokenValidToStr = cookieMap["c_token_valid_to"]
+        if (token.isNullOrBlank() || tokenValidToStr.isNullOrBlank()) return
+
+        val tokenValidTo = tokenValidToStr.parseTokenValidTo()
+
+        if (tokenValidTo < System.currentTimeMillis()) return
+
+        DataFetcher.setToken(this, token, tokenValidTo)
+
+        cookieManager.setCookie("https://carelink.minimed.eu/", "auth_tmp_token=")
+        cookieManager.setCookie("https://carelink.minimed.eu/", "c_token_valid_to=")
+
+        DataFetchService.start(this, force = true)
+
+        finish()
     }
 }

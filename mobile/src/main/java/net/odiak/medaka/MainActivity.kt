@@ -29,7 +29,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.SpanStyle
@@ -40,11 +39,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
-import androidx.lifecycle.Observer
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.map
-import androidx.work.WorkInfo
-import androidx.work.WorkManager
 import kotlinx.coroutines.flow.map
 import net.odiak.medaka.common.Basal
 import net.odiak.medaka.common.MinimedData
@@ -65,25 +60,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         askNotificationPermission()
-        Worker.checkCache(this)
-
-        val workManager = WorkManager.getInstance(this)
-        val workInfoLiveData =
-            workManager.getWorkInfosForUniqueWorkLiveData(Worker.workerName).map {
-                it.firstOrNull()
-            }
-
-        val observer = object : Observer<WorkInfo?> {
-            override fun onChanged(value: WorkInfo?) {
-                if (value == null) {
-                    Worker.enqueue(workManager)
-                }
-                workInfoLiveData.removeObserver(this)
-            }
-        }
-        workInfoLiveData.observe(this, observer)
-
-        Worker.enqueuePeriodically(workManager)
+        DataFetcher.checkCache(this)
+        DataFetchService.start(this)
 
         setContent {
             val settings = remember { settingsDataStore.data }.collectAsState(initial = null)
@@ -98,7 +76,7 @@ class MainActivity : ComponentActivity() {
             MedakaTheme {
                 Scaffold(topBar = {
                     TopAppBar(title = { Text("Medaka") }, modifier = Modifier, actions = {
-                        IconButton(onClick = { Worker.enqueue(workManager) }) {
+                        IconButton(onClick = { refresh() }) {
                             // reload button
                             Icon(
                                 Icons.Filled.Refresh, contentDescription = "Reload data"
@@ -120,14 +98,17 @@ class MainActivity : ComponentActivity() {
                                 .scrollable(state, Orientation.Vertical)
                                 .padding(16.dp)
                         ) {
-                            Button(onClick = {
-                                startActivity(Intent(this@MainActivity, LoginActivity::class.java))
-                            }) {
-                                Text("Login")
+                            val data = DataFetcher.lastData.collectAsState(null).value
+                            val status =
+                                DataFetcher.status.collectAsState(DataFetcher.Status.IDLE).value
+
+                            if (status === DataFetcher.Status.SESSION_EXPIRED) {
+                                Button(onClick = { login() }) {
+                                    Text("Login")
+                                }
                             }
 
-                            val data = Worker.lastData.collectAsState(null).value
-                            val workInfoState = workInfoLiveData.observeAsState().value?.state
+
                             if (data == null) {
                                 Text("No data")
                                 return@Column
@@ -137,7 +118,7 @@ class MainActivity : ComponentActivity() {
                                 }.collectAsStateWithLifecycle(
                                     initialValue = LocalDateTime.now(), lifecycle = lifecycle
                                 ).value
-                                Main(data, workInfoState, now)
+                                Main(data, status, now)
                             }
                         }
                     }
@@ -166,12 +147,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun login() {
+        startActivity(Intent(this, LoginActivity::class.java))
+    }
+
+    private fun refresh() {
+        DataFetchService.start(this, force = true)
+    }
 }
 
 @Composable
-fun Main(data: MinimedData, workState: WorkInfo.State?, now: LocalDateTime) {
+fun Main(data: MinimedData, status: DataFetcher.Status, now: LocalDateTime) {
     Column {
-        Text("fetching status: ${workState ?: "NONE"}")
+        Text("fetching status: $status")
 
         Spacer(modifier = Modifier.padding(2.dp))
 
@@ -289,7 +277,7 @@ fun MainPreview() {
             ),
             lastSGTrend = "UP_DOUBLE",
         ),
-        null,
+        DataFetcher.Status.IDLE,
         LocalDateTime.of(2023, 8, 1, 0, 12)
     )
 }
