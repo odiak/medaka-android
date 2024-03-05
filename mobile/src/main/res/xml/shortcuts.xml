@@ -1,0 +1,14 @@
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="compose"
+        android:enabled="true"
+        android:icon="@drawable/ic_notification"
+        android:shortcutShortLabel="@string/shortcut_short_name_log"
+        android:shortcutLongLabel="@string/shortcut_long_name_log"
+        android:shortcutDisabledMessage="@string/shortcut_disabled_message_log">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="net.odiak.medaka"
+            android:targetClass="net.odiak.medaka.LogActivity" />
+    </shortcut>
+</shortcuts>
