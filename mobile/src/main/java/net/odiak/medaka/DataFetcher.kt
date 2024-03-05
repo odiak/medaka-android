@@ -74,19 +74,19 @@ object DataFetcher {
         }
 
         val cache = File(context.filesDir, CACHE_FILE)
-        if (cache.exists()) {
-            val data = try {
-                cache.readText().parseJson<MinimedData>()
-            } catch (e: Throwable) {
-                Log.e("DataFetcher", "Failed to parse cache", e)
-                null
-            }
-            if (data != null) {
-                lastData.update { data }
-                CoroutineScope(Dispatchers.IO).launch {
-                    notify(context, data)
-                    sendDataToWearDevice(context, data)
-                }
+        if (!cache.exists()) return
+
+        val data = try {
+            cache.readText().parseJson<MinimedData>()
+        } catch (e: Throwable) {
+            Log.e("DataFetcher", "Failed to parse cache", e)
+            null
+        }
+        if (data != null) {
+            lastData.update { data }
+            CoroutineScope(Dispatchers.IO).launch {
+                notify(context, data)
+                sendDataToWearDevice(context, data)
             }
         }
     }
@@ -192,7 +192,12 @@ object DataFetcher {
         return Result.Success(delay)
     }
 
-    private suspend fun fetchData(context: Context, username: String, token: String): MinimedData? {
+    private suspend fun fetchData(
+        context: Context,
+        username: String,
+        token: String,
+    ): MinimedData? {
+        val logger = context.logger
         val client = OkHttpClient.Builder()
             .readTimeout(Duration.ofMinutes(3))
             .build()
@@ -202,6 +207,8 @@ object DataFetcher {
             "role" to "patient",
             "username" to username
         )
+
+        logger.log("Start fetching data")
 
         for (i in 1..4) {
             try {
@@ -218,7 +225,11 @@ object DataFetcher {
                     val file = File(context.filesDir, CACHE_FILE)
                     file.writeBytes(bytes)
 
-                    return bytes.toString(Charset.defaultCharset()).parseJson()
+                    val data = bytes.toString(Charset.defaultCharset()).parseJson<MinimedData>()
+
+                    logger.log("Data fetched")
+
+                    return data
                 }
 
                 res.body?.close()
@@ -227,13 +238,17 @@ object DataFetcher {
                     setToken(context, null, null)
                     notifySessionExpiration(context)
 
+                    logger.log("Got 401 Unauthorized, session expired")
+
                     return null
                 }
             } catch (e: Throwable) {
                 Log.e("DataFetcher", "Failed to fetch data", e)
+                logger.log("Failed to fetch data: ${e.message}")
             }
 
             delay(30.seconds)
+            logger.log("Retrying to fetch data")
         }
 
         return null
@@ -346,6 +361,8 @@ object DataFetcher {
     }
 
     private suspend fun reauthIfNeeded(context: Context) {
+        val logger = context.logger
+
         val token = token ?: return
         val tokenValidTo = tokenValidTo ?: return
 
@@ -386,7 +403,10 @@ object DataFetcher {
         }
 
         if (newToken != null && newTokenValidToStr != null) {
+            logger.log("Reauth succeeded")
             setToken(context, newToken, newTokenValidToStr.parseTokenValidTo())
+        } else {
+            logger.log("Reauth failed")
         }
 
         res.body?.close()

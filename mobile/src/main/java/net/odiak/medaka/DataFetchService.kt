@@ -76,6 +76,12 @@ class DataFetchService : Service() {
         return null
     }
 
+    override fun onCreate() {
+        super.onCreate()
+
+        logger.log("Service started")
+    }
+
     override fun onDestroy() {
         super.onDestroy()
 
@@ -84,5 +90,7 @@ class DataFetchService : Service() {
                 it.cancel()
             }
         }
+
+        logger.log("Service stopped")
     }
 }
