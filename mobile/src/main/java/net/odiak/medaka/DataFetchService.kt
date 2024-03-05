@@ -28,13 +28,14 @@ class DataFetchService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val notification = NotificationCompat.Builder(this, "main")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setContentText("fetching data")
+            .setContentText("service running...")
             .setSmallIcon(R.drawable.ic_notification)
             .setSilent(true)
             .setOngoing(true)
             .setAutoCancel(false)
+            .setTimeoutAfter(5000)
             .build()
-        startForeground(1, notification)
+        startForeground(3, notification)
 
         startJob(intent?.getBooleanExtra(EXTRA_FORCE, false) ?: false)
 
