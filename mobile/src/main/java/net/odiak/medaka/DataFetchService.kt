@@ -106,4 +106,16 @@ class DataFetchService : Service() {
 
         logger.log("Service stopped")
     }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+
+        logger.log("Low memory")
+
+        currentJob?.let {
+            if (it.isActive) {
+                it.cancel()
+            }
+        }
+    }
 }
