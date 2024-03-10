@@ -184,8 +184,8 @@ fun Main(data: MinimedData, status: DataFetcher.Status, now: LocalDateTime) {
 
         Text(buildAnnotatedString {
             append("basal: ")
-            val text = "${data.basal.activeBasalPattern} ${data.basal.basalRate}U/h"
-            if (data.basal.tempBasalRate != null) {
+            val text = "${data.basal?.activeBasalPattern} ${data.basal?.basalRate}U/h"
+            if (data.basal?.tempBasalRate != null) {
                 withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
                     append(text)
                 }
@@ -193,7 +193,7 @@ fun Main(data: MinimedData, status: DataFetcher.Status, now: LocalDateTime) {
                 append(text)
             }
 
-            val tempRate = data.basal.tempBasalRate
+            val tempRate = data.basal?.tempBasalRate
             if (tempRate != null) {
                 append(" (temp ${tempRate}U/h)")
             }

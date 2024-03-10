@@ -7,7 +7,7 @@ import java.time.format.DateTimeFormatter
 class MinimedData(
     val sgs: List<SensorGlucose>,
     val lastSG: SensorGlucose?,
-    val basal: Basal,
+    val basal: Basal?,
     @Json(name = "pumpBannerState")
     val pumpBannerStates: List<PumpBannerState> = emptyList(),
     val timeToNextCalibrationMinutes: Int? = null,
@@ -54,7 +54,7 @@ class SensorGlucose(
 
     object SensorStates {
         const val NO_ERROR_MESSAGE = "NO_ERROR_MESSAGE"
-        const val Above400MGDL = "SG_ABOVE_400_MGDL"
+        const val ABOVE_400MGDL = "SG_ABOVE_400_MGDL"
         const val CALIBRATION_REQUIRED = "CALIBRATION_REQUIRED"
         const val NO_DATA_FROM_PUMP = "NO_DATA_FROM_PUMP"
         const val WAIT_TO_CALIBRATE = "WAIT_TO_CALIBRATE"
@@ -70,7 +70,7 @@ class SensorGlucose(
         get() {
             return when (sensorState) {
                 SensorStates.NO_ERROR_MESSAGE, SensorStates.NORMAL -> "${sg}mg/dL"
-                SensorStates.Above400MGDL -> "over 400mg/dL"
+                SensorStates.ABOVE_400MGDL -> "over 400mg/dL"
                 SensorStates.CALIBRATION_REQUIRED -> "calibration required"
                 SensorStates.NO_DATA_FROM_PUMP -> "no data from pump"
                 SensorStates.WAIT_TO_CALIBRATE -> "wait to calibrate"
@@ -87,7 +87,7 @@ class SensorGlucose(
         get() {
             return when (sensorState) {
                 SensorStates.NO_ERROR_MESSAGE, SensorStates.NORMAL -> sg
-                SensorStates.Above400MGDL -> 400
+                SensorStates.ABOVE_400MGDL -> 400
                 else -> null
             }
         }
