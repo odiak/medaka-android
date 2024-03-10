@@ -67,13 +67,16 @@ class LoginActivity : ComponentActivity() {
                         .fillMaxHeight(),
                     factory = ::WebView,
                     update = { webView ->
+                        if (this.webView === webView) return@AndroidView
                         this.webView = webView
 
                         webView.webViewClient = webViewClient
                         webView.settings.javaScriptEnabled = true
                         webView.settings.loadsImagesAutomatically = true
                         webView.settings.domStorageEnabled = true
-                        webView.settings.userAgentString = "Test"
+                        webView.settings.userAgentString = (webView.settings.userAgentString ?: "")
+                            .replace("Android", "", true)
+                            .replace("Mobile", "", true)
                         cookieManager.setAcceptThirdPartyCookies(webView, true)
 
                         val s = settings.value
@@ -90,6 +93,9 @@ class LoginActivity : ComponentActivity() {
 
     private fun handleCookie(cookieManager: CookieManager, url: String) {
         val cookie = cookieManager.getCookie(url) ?: return
+
+        logger.log("Cookie: $cookie")
+
         val cookieParts = cookie.split(";")
         val cookieMap = cookieParts.mapNotNull { part ->
             val kv = part.split("=", ignoreCase = false, limit = 2)
@@ -101,17 +107,12 @@ class LoginActivity : ComponentActivity() {
         val tokenValidToStr = cookieMap["c_token_valid_to"]
         if (token.isNullOrBlank() || tokenValidToStr.isNullOrBlank()) return
 
-        val tokenValidTo = tokenValidToStr.parseTokenValidTo()
-
-        if (tokenValidTo < System.currentTimeMillis()) return
-
-        DataFetcher.setToken(this, token, tokenValidTo)
-
         cookieManager.setCookie("https://carelink.minimed.eu/", "auth_tmp_token=")
         cookieManager.setCookie("https://carelink.minimed.eu/", "c_token_valid_to=")
 
-        DataFetchService.start(this, force = true)
-
-        finish()
+        if (DataFetcher.setToken(this, token, tokenValidToStr)) {
+            DataFetchService.start(this, force = true)
+            finish()
+        }
     }
 }

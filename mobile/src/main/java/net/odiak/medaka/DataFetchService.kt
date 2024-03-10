@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,7 +56,15 @@ class DataFetchService : Service() {
 
         currentJob = CoroutineScope(Dispatchers.IO).launch {
             while (true) {
-                when (val result = DataFetcher.fetchDataAndNotify(this@DataFetchService)) {
+                val result = try {
+                    DataFetcher.fetchDataAndNotify(this@DataFetchService)
+                } catch (e: Exception) {
+                    Log.e("DataFetchService", "Error in fetchDataAndNotify", e)
+                    logger.log("Error in fetchDataAndNotify: ${e.message}")
+                    continue
+                }
+
+                when (result) {
                     is DataFetcher.Result.ErrorAndExit -> {
                         stopSelf()
                         break

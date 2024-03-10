@@ -3,6 +3,7 @@ package net.odiak.medaka
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -46,12 +47,21 @@ class LogActivity : ComponentActivity() {
                             )
                         }
 
-                        Row {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                        ) {
                             Button(onClick = { textState.value = getLogText() }) {
-                                Text(text = "Reload")
+                                Text(text = "Reload Logs")
                             }
                             Button(onClick = { clear(); textState.value = "" }) {
-                                Text(text = "Clear")
+                                Text(text = "Clear Logs")
+                            }
+                            Button(onClick = { reset() }) {
+                                Text(text = "Reset Data")
+                            }
+                            Button(onClick = { reauth() }) {
+                                Text(text = "Reauth")
                             }
                         }
                     }
@@ -69,5 +79,13 @@ class LogActivity : ComponentActivity() {
     private fun clear() {
         val file = File(filesDir, Logger.LOG_FILE)
         if (file.exists()) file.delete()
+    }
+
+    private fun reset() {
+        DataFetcher.resetAllData(this)
+    }
+
+    private fun reauth() {
+        DataFetcher.forceReauth(this)
     }
 }

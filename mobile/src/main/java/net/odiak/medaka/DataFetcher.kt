@@ -37,9 +37,12 @@ import okio.IOException
 import java.io.File
 import java.nio.charset.Charset
 import java.time.Duration
+import java.time.Instant
 import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
@@ -56,7 +59,8 @@ object DataFetcher {
     private var tokenValidTo: Long? = null
     private var isTokenRestored = false
 
-    val COOKIE_DATETIME_FORMAT = DateTimeFormatter.ofPattern("EEE MMM dd HH:mm:ss zzz yyyy")!!
+    val COOKIE_DATETIME_FORMAT =
+        DateTimeFormatter.ofPattern("EEE MMM dd HH:mm:ss zzz yyyy", Locale.ENGLISH)!!
 
     enum class Status {
         IDLE, FETCHING, SUCCESS, ERROR, SESSION_EXPIRED
@@ -91,18 +95,31 @@ object DataFetcher {
         }
     }
 
-    fun setToken(context: Context?, token: String?, tokenValidTo: Long?) {
+
+    fun setToken(context: Context, token: String, tokenValidToStr: String): Boolean {
+        val tokenValidTo = tokenValidToStr.parseTokenValidTo()
+
+        if (tokenValidTo < System.currentTimeMillis()) {
+            return false
+        }
+
         this.token = token
         this.tokenValidTo = tokenValidTo
 
-        if (context != null) {
-            val file = File(context.filesDir, TOKEN_FILE)
-            if (token != null && tokenValidTo != null) {
-                file.writeText("$token\n$tokenValidTo")
-            } else {
-                file.writeText("")
-            }
-        }
+        val validToStr = tokenValidTo.epochMilliToFormattedDateTime()
+        context.logger.log("Token updated, valid to $validToStr")
+
+        val file = File(context.filesDir, TOKEN_FILE)
+        file.writeText("$token\n$tokenValidTo")
+
+        return true
+    }
+
+    private fun clearToken(context: Context) {
+        token = null
+        tokenValidTo = null
+
+        File(context.filesDir, TOKEN_FILE).writeText("")
     }
 
     private fun restoreToken(context: Context) {
@@ -129,6 +146,8 @@ object DataFetcher {
     }
 
     suspend fun fetchDataAndNotify(context: Context): Result {
+        val logger = context.logger
+
         restoreToken(context)
 
         if (status.value == Status.FETCHING) {
@@ -171,7 +190,7 @@ object DataFetcher {
             val lastSensorDateTime = data.lastSG?.datetime?.let {
                 LocalDateTime.from(DateTimeFormatter.ISO_DATE_TIME.parse(it))
             }
-            println("Data fetched. latest sensor time: $lastSensorDateTime")
+            logger.log("latest sensor time: $lastSensorDateTime")
 
             sendDataToWearDevice(context, data)
             notify(context, data)
@@ -235,7 +254,7 @@ object DataFetcher {
                 res.body?.close()
 
                 if (res.code == 401) {
-                    setToken(context, null, null)
+                    clearToken(context)
                     notifySessionExpiration(context)
 
                     logger.log("Got 401 Unauthorized, session expired")
@@ -360,20 +379,29 @@ object DataFetcher {
         }
     }
 
-    private suspend fun reauthIfNeeded(context: Context) {
+    fun forceReauth(context: Context) {
+        CoroutineScope(Dispatchers.IO).launch {
+            reauthIfNeeded(context, true)
+        }
+    }
+
+    private suspend fun reauthIfNeeded(context: Context, force: Boolean = false) {
         val logger = context.logger
 
         val token = token ?: return
         val tokenValidTo = tokenValidTo ?: return
 
         val now = System.currentTimeMillis()
-        if (now + 10 * 60 * 1000 < tokenValidTo) {
+        if (!force && now + 10 * 60 * 1000 < tokenValidTo) {
             return
         }
 
         if (now > tokenValidTo) {
-            setToken(context, null, null)
+            clearToken(context)
             notifySessionExpiration(context)
+
+            logger.log("Session expired")
+
             return
         }
 
@@ -393,6 +421,7 @@ object DataFetcher {
         var newToken: String? = null
         var newTokenValidToStr: String? = null
         for (value in res.headers.values("Set-Cookie")) {
+            logger.log("Cookie from reauth: $value")
             val (k, v) = value.split(";", limit = 2)[0]
                 .split("=", limit = 2).map(String::trim)
             when (k) {
@@ -404,12 +433,21 @@ object DataFetcher {
 
         if (newToken != null && newTokenValidToStr != null) {
             logger.log("Reauth succeeded")
-            setToken(context, newToken, newTokenValidToStr.parseTokenValidTo())
+            setToken(context, newToken, newTokenValidToStr)
         } else {
             logger.log("Reauth failed")
         }
 
         res.body?.close()
+    }
+
+    fun resetAllData(context: Context) {
+        lastData.update { null }
+        lastDataTimestamp.update { null }
+        clearToken(context)
+
+        val file = File(context.filesDir, CACHE_FILE)
+        file.delete()
     }
 }
 
@@ -427,22 +465,24 @@ suspend fun Call.executeSuspend(): Response {
     }
 }
 
-inline fun <reified T> String.parseJson(): T {
+private inline fun <reified T> String.parseJson(): T {
     val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
     val adapter = moshi.adapter(T::class.java)
     return adapter.fromJson(this)!!
 }
 
 @OptIn(ExperimentalStdlibApi::class)
-fun Request.Builder.postJsonMap(obj: Map<String, Any?>): Request.Builder {
+private fun Request.Builder.postJsonMap(obj: Map<String, Any?>): Request.Builder {
     val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
     val adapter = moshi.adapter<Map<String, Any?>>()
     return post(JsonRequestBody(adapter, obj))
 }
 
-fun String.parseTokenValidTo(): Long {
-    return LocalDateTime
-        .parse(this, DataFetcher.COOKIE_DATETIME_FORMAT)
+private fun String.parseTokenValidTo(): Long =
+    LocalDateTime.parse(this, DataFetcher.COOKIE_DATETIME_FORMAT)
         .toEpochSecond(ZoneOffset.UTC) * 1000
-}
 
+private fun Long.epochMilliToFormattedDateTime(): String =
+    Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).format(
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+    )
