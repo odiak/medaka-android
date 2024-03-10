@@ -27,7 +27,10 @@ class DataFetchService : Service() {
     private var currentJob: Job? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = NotificationCompat.Builder(this, "main")
+        // ensure notification channel is created
+        getNotificationManagerCompat(false)
+
+        val notification = NotificationCompat.Builder(this, NotificationConfig.CHANNEL_ID)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentText("service running...")
             .setSmallIcon(R.drawable.ic_notification)
@@ -36,7 +39,7 @@ class DataFetchService : Service() {
             .setAutoCancel(false)
             .setTimeoutAfter(5000)
             .build()
-        startForeground(3, notification)
+        startForeground(NotificationConfig.Types.ServiceRunning.id, notification)
 
         startJob(intent?.getBooleanExtra(EXTRA_FORCE, false) ?: false)
 

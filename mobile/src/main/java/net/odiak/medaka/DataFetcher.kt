@@ -1,17 +1,11 @@
 package net.odiak.medaka
 
-import android.Manifest
 import android.annotation.SuppressLint
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.util.Log
-import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import com.google.android.gms.tasks.Tasks
 import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.Wearable
@@ -293,89 +287,65 @@ object DataFetcher {
         Wearable.getMessageClient(context).sendMessage(id, "/data", buffer)
     }
 
-    private const val CHANNEL_ID = "main"
-
-    private fun notificationWrapper(context: Context, block: (NotificationManagerCompat) -> Unit) {
-        if (ActivityCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            return
-        }
-
-        val manager = NotificationManagerCompat.from(context)
-        if (manager.getNotificationChannel(CHANNEL_ID) == null) {
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID,
-                    "Main",
-                    NotificationManager.IMPORTANCE_HIGH
-                )
-            )
-        }
-
-        block(manager)
-    }
-
     @SuppressLint("MissingPermission")
     private fun notify(context: Context, data: MinimedData) {
-        notificationWrapper(context) { manager ->
-            val intent = Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            }
-            val pendingIntent: PendingIntent =
-                PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+        val manager = context.getNotificationManagerCompat() ?: return
 
-            val sg = data.lastSGString
-            val time = data.lastSGDateTime
-                ?.format(DateTimeFormatter.ofPattern("HH:mm"))
-            val diff = data.lastSGDiffString
-            val trend = data.lastSGTrendString.let {
-                if (it.isEmpty()) "" else " $it"
-            }
+        manager.cancel(NotificationConfig.Types.SessionExpiration.id)
+        manager.cancel(NotificationConfig.Types.ServiceRunning.id)
 
-            val notification = NotificationCompat.Builder(context, "main")
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setContentText("SG: $sg$trend $diff\nat $time")
-                .setContentIntent(pendingIntent)
-                .setSmallIcon(R.drawable.ic_notification)
-                .setSilent(true)
-                .setOngoing(true)
-                .setAutoCancel(false)
-                .build()
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val pendingIntent: PendingIntent =
+            PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
 
+        val sg = data.lastSGString
+        val time = data.lastSGDateTime
+            ?.format(DateTimeFormatter.ofPattern("HH:mm"))
+        val diff = data.lastSGDiffString
+        val trend = data.lastSGTrendString.let {
+            if (it.isEmpty()) "" else " $it"
+        }
 
-            try {
-                manager.notify(1, notification)
-            } catch (e: Throwable) {
-                Log.e("DataFetcher", "Failed to notify", e)
-            }
+        val notification = NotificationCompat.Builder(context, NotificationConfig.CHANNEL_ID)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentText("SG: $sg$trend $diff\nat $time")
+            .setContentIntent(pendingIntent)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setSilent(true)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .build()
+
+        try {
+            manager.notify(NotificationConfig.Types.SensorData.id, notification)
+        } catch (e: Throwable) {
+            Log.e("DataFetcher", "Failed to notify", e)
         }
     }
-
 
     @SuppressLint("MissingPermission")
     private fun notifySessionExpiration(context: Context) {
-        notificationWrapper(context) { manager ->
-            val intent = Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            }
-            val pendingIntent: PendingIntent =
-                PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+        val manager = context.getNotificationManagerCompat() ?: return
 
-            val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-                .setContentIntent(pendingIntent)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setContentText("Session expired")
-                .setSmallIcon(R.drawable.ic_notification)
-                .build()
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val pendingIntent: PendingIntent =
+            PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
 
-            try {
-                manager.notify(2, notification)
-            } catch (e: Throwable) {
-                Log.e("DataFetcher", "Failed to notify", e)
-            }
+        val notification = NotificationCompat.Builder(context, NotificationConfig.CHANNEL_ID)
+            .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentText("Session expired")
+            .setSmallIcon(R.drawable.ic_notification)
+            .build()
+
+        try {
+            manager.notify(2, notification)
+        } catch (e: Throwable) {
+            Log.e("DataFetcher", "Failed to notify", e)
         }
     }
 
