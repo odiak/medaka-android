@@ -1,6 +1,7 @@
 package net.odiak.medaka
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -14,6 +15,8 @@ class Logger(private val context: Context) {
     }
 
     fun log(message: String) {
+        Log.i("Logger", message)
+
         CoroutineScope(Dispatchers.IO).launch {
             val datetimeStr =
                 LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
